@@ -103,57 +103,60 @@ jobs:
           # Install and use Blender to convert STL to GLB for better web viewing
           sudo snap install blender --classic
           
-          # Convert STL to GLB using Blender
-          /snap/bin/blender --background --python-expr "
-import bpy
-import bmesh
-import os
-
-# Clear default scene
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete()
-
-# Import STL
-stl_file = [f for f in os.listdir('.') if f.startswith('model_') and f.endswith('.stl')]
-if stl_file:
-    bpy.ops.import_mesh.stl(filepath=stl_file[0])
-    
-    # Select the imported object
-    obj = bpy.context.selected_objects[0]
-    bpy.context.view_layer.objects.active = obj
-    
-    # Add a material for better appearance
-    mat = bpy.data.materials.new(name='ToroideMaterial')
-    mat.use_nodes = True
-    mat.node_tree.nodes.clear()
-    
-    # Add principled BSDF
-    bsdf = mat.node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
-    output = mat.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
-    mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
-    
-    # Set material properties for a nice metallic look
-    bsdf.inputs['Base Color'].default_value = (0.8, 0.6, 0.2, 1.0)  # Gold-ish color
-    bsdf.inputs['Metallic'].default_value = 0.8
-    bsdf.inputs['Roughness'].default_value = 0.2
-    
-    # Assign material to object
-    if obj.data.materials:
-        obj.data.materials[0] = mat
-    else:
-        obj.data.materials.append(mat)
-    
-    # Export as GLB
-    bpy.ops.export_scene.gltf(
-        filepath='model.glb',
-        export_format='GLB',
-        use_selection=True,
-        export_materials='EXPORT'
-    )
-    print('Successfully exported GLB')
-else:
-    print('No STL file found')
-"
+          # Create Blender script for STL to GLB conversion
+          cat > convert_to_glb.py << 'BLENDER_SCRIPT'
+          import bpy
+          import bmesh
+          import os
+          
+          # Clear default scene
+          bpy.ops.object.select_all(action='SELECT')
+          bpy.ops.object.delete()
+          
+          # Import STL
+          stl_file = [f for f in os.listdir('.') if f.startswith('model_') and f.endswith('.stl')]
+          if stl_file:
+              bpy.ops.import_mesh.stl(filepath=stl_file[0])
+              
+              # Select the imported object
+              obj = bpy.context.selected_objects[0]
+              bpy.context.view_layer.objects.active = obj
+              
+              # Add a material for better appearance
+              mat = bpy.data.materials.new(name='ToroideMaterial')
+              mat.use_nodes = True
+              mat.node_tree.nodes.clear()
+              
+              # Add principled BSDF
+              bsdf = mat.node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
+              output = mat.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
+              mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+              
+              # Set material properties for a nice metallic look
+              bsdf.inputs['Base Color'].default_value = (0.8, 0.6, 0.2, 1.0)  # Gold-ish color
+              bsdf.inputs['Metallic'].default_value = 0.8
+              bsdf.inputs['Roughness'].default_value = 0.2
+              
+              # Assign material to object
+              if obj.data.materials:
+                  obj.data.materials[0] = mat
+              else:
+                  obj.data.materials.append(mat)
+              
+              # Export as GLB
+              bpy.ops.export_scene.gltf(
+                  filepath='model.glb',
+                  export_format='GLB',
+                  use_selection=True,
+                  export_materials='EXPORT'
+              )
+              print('Successfully exported GLB')
+          else:
+              print('No STL file found')
+          BLENDER_SCRIPT
+          
+          # Run Blender script
+          /snap/bin/blender --background --python convert_to_glb.py
           
           # Create a Python script to render views using Three.js concepts
           cat > render_views.py << 'RENDER_SCRIPT'
