@@ -32,8 +32,8 @@ jobs:
         run: |
           # Install OpenSCAD for 3D model processing
           sudo apt-get install -y openscad
-          # Install FreeCAD for .3dm file support
-          sudo apt-get install -y freecad
+          # Install FreeCAD from snap for .3dm file support
+          sudo snap install freecad
           
       - name: Convert and render 3D model views
         run: |
@@ -50,7 +50,7 @@ jobs:
           echo "Processing: $MODEL_FILE"
           
           # Convert 3dm to STL using FreeCAD
-          freecad -c << EOF
+          /snap/bin/freecad -c << EOF
           import FreeCAD
           import Part
           import Mesh
