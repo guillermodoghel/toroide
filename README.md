@@ -19,7 +19,7 @@ This repository contains a 3D model of a toroide (torus/donut shape).
 ## Model Information
 
 - **File Format**: Rhino 3D (.3dm)
-- **Model File**: `240807_Toroide.3dm`
+- **Last Updated**: $(date +"%Y-%m-%d")
 - **Generated Views**: Automatically updated via GitHub Actions
 
 ## Files
@@ -29,4 +29,4 @@ This repository contains a 3D model of a toroide (torus/donut shape).
 
 ---
 
-*Views will be automatically generated when the model file is updated*
+*Views automatically generated on $(date +"%Y-%m-%d %H:%M:%S UTC")*
