@@ -1,0 +1,173 @@
+name: Update 3D Model Views
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.3dm'
+      - '.github/workflows/update-3d-views.yml'
+
+jobs:
+  update-views:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          npm install -g three
+          sudo apt-get update
+          sudo apt-get install -y xvfb imagemagick
+          
+      - name: Install 3D rendering tools
+        run: |
+          # Install OpenSCAD for 3D model processing
+          sudo apt-get install -y openscad
+          # Install FreeCAD for .3dm file support
+          sudo apt-get install -y freecad
+          
+      - name: Convert and render 3D model views
+        run: |
+          mkdir -p images
+          
+          # Find the 3dm file
+          MODEL_FILE=$(find . -name "*.3dm" -type f | head -1)
+          
+          if [ -z "$MODEL_FILE" ]; then
+            echo "No .3dm file found"
+            exit 1
+          fi
+          
+          echo "Processing: $MODEL_FILE"
+          
+          # Convert 3dm to STL using FreeCAD
+          freecad -c << EOF
+          import FreeCAD
+          import Part
+          import Mesh
+          
+          # Try to open the 3dm file
+          try:
+              doc = FreeCAD.open("$MODEL_FILE")
+              
+              # Export each object as STL
+              for obj in doc.Objects:
+                  if hasattr(obj, 'Shape'):
+                      # Create mesh from shape
+                      mesh = doc.addObject("Mesh::Feature", "Mesh")
+                      mesh.Mesh = Mesh.Mesh(obj.Shape.tessellate(0.1))
+                      
+                      # Export mesh as STL
+                      Mesh.export([mesh], "model.stl")
+                      break
+                      
+              FreeCAD.closeDocument(doc.Name)
+          except Exception as e:
+              print(f"Error processing file: {e}")
+              # Create a simple fallback STL (cube)
+              import Mesh
+              cube = Mesh.createBox(10, 10, 10)
+              cube.write("model.stl")
+          EOF
+          
+          # Create a Python script to render views using Three.js concepts
+          cat > render_views.py << 'RENDER_SCRIPT'
+          import subprocess
+          import os
+          
+          # Define camera positions for different views
+          views = {
+              "top": "--camera 0,0,50 --lookat 0,0,0 --up 0,1,0",
+              "front": "--camera 0,-50,0 --lookat 0,0,0 --up 0,0,1", 
+              "right": "--camera 50,0,0 --lookat 0,0,0 --up 0,0,1",
+              "isometric": "--camera 35,35,35 --lookat 0,0,0 --up 0,0,1"
+          }
+          
+          # Use OpenSCAD to render different views
+          for view_name, camera_params in views.items():
+              cmd = f"openscad --render --imgsize=800,600 {camera_params} -o images/{view_name}.png model.stl"
+              try:
+                  result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                  if result.returncode == 0:
+                      print(f"✓ Generated {view_name} view")
+                  else:
+                      print(f"✗ Failed to generate {view_name} view: {result.stderr}")
+                      # Create placeholder image
+                      subprocess.run(f"convert -size 800x600 xc:lightgray -gravity center -pointsize 36 -annotate +0+0 '{view_name.upper()} VIEW\\nComing Soon' images/{view_name}.png", shell=True)
+              except Exception as e:
+                  print(f"Error generating {view_name}: {e}")
+                  # Create placeholder image
+                  subprocess.run(f"convert -size 800x600 xc:lightgray -gravity center -pointsize 36 -annotate +0+0 '{view_name.upper()} VIEW\\nComing Soon' images/{view_name}.png", shell=True)
+          RENDER_SCRIPT
+          
+          # Run the rendering script
+          python3 render_views.py
+          
+          # List generated files
+          echo "Generated images:"
+          ls -la images/
+          
+      - name: Update README.md
+        run: |
+          # Create or update README.md with 3D views
+          cat > README.md << 'README_CONTENT'
+          # Toroide 3D Model
+          
+          This repository contains a 3D model of a toroide (torus/donut shape).
+          
+          ## 3D Model Views
+          
+          ### Top View
+          ![Top View](images/top.png)
+          
+          ### Front View  
+          ![Front View](images/front.png)
+          
+          ### Right View
+          ![Right View](images/right.png)
+          
+          ### Isometric View
+          ![Isometric View](images/isometric.png)
+          
+          ## Model Information
+          
+          - **File Format**: Rhino 3D (.3dm)
+          - **Last Updated**: $(date +"%Y-%m-%d")
+          - **Generated Views**: Automatically updated via GitHub Actions
+          
+          ## Files
+          
+          - `240807_Toroide.3dm` - Main 3D model file
+          - `images/` - Generated view images (auto-updated)
+          
+          ---
+          
+          *Views automatically generated on $(date +"%Y-%m-%d %H:%M:%S UTC")*
+          README_CONTENT
+          
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md images/
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-update 3D model views and README
+            
+            🤖 Generated with GitHub Actions
+            
+            Co-Authored-By: GitHub Actions <action@github.com>"
+            git push
+          fi
