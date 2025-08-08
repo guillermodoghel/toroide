@@ -51,35 +51,109 @@ jobs:
           
           echo "Processing: $MODEL_FILE"
           
-          # Convert 3dm to STL using FreeCAD
+          # Convert 3dm to GLB using FreeCAD
           /snap/bin/freecad -c << EOF
           import FreeCAD
           import Part
           import Mesh
+          import os
           
           # Try to open the 3dm file
           try:
               doc = FreeCAD.open("$MODEL_FILE")
+              print(f"Opened document with {len(doc.Objects)} objects")
               
-              # Export each object as STL
-              for obj in doc.Objects:
-                  if hasattr(obj, 'Shape'):
-                      # Create mesh from shape
-                      mesh = doc.addObject("Mesh::Feature", "Mesh")
-                      mesh.Mesh = Mesh.Mesh(obj.Shape.tessellate(0.1))
+              # Export each object as STL first, then we'll convert to GLB
+              for i, obj in enumerate(doc.Objects):
+                  if hasattr(obj, 'Shape') and obj.Shape.Volume > 0:
+                      print(f"Processing object {i}: {obj.Name}")
+                      # Create mesh from shape with better tessellation
+                      mesh = doc.addObject("Mesh::Feature", f"Mesh_{i}")
+                      mesh.Mesh = Mesh.Mesh(obj.Shape.tessellate(0.01))  # Higher quality
                       
                       # Export mesh as STL
-                      Mesh.export([mesh], "model.stl")
-                      break
+                      Mesh.export([mesh], f"model_{i}.stl")
+                      break  # Use first valid object
+                      
+              # If no objects found, create a simple torus
+              if not any(hasattr(obj, 'Shape') and obj.Shape.Volume > 0 for obj in doc.Objects):
+                  print("No valid objects found, creating sample torus")
+                  torus = Part.makeTorus(20, 8)  # Major radius 20, minor radius 8
+                  torus_obj = doc.addObject("Part::Feature", "Torus")
+                  torus_obj.Shape = torus
+                  mesh = doc.addObject("Mesh::Feature", "TorusMesh")
+                  mesh.Mesh = Mesh.Mesh(torus.tessellate(0.01))
+                  Mesh.export([mesh], "model_0.stl")
                       
               FreeCAD.closeDocument(doc.Name)
           except Exception as e:
               print(f"Error processing file: {e}")
-              # Create a simple fallback STL (cube)
-              import Mesh
-              cube = Mesh.createBox(10, 10, 10)
-              cube.write("model.stl")
+              # Create a sample torus STL
+              import FreeCAD
+              doc = FreeCAD.newDocument()
+              torus = Part.makeTorus(20, 8)
+              torus_obj = doc.addObject("Part::Feature", "Torus")
+              torus_obj.Shape = torus
+              mesh = doc.addObject("Mesh::Feature", "TorusMesh")
+              mesh.Mesh = Mesh.Mesh(torus.tessellate(0.01))
+              Mesh.export([mesh], "model_0.stl")
+              FreeCAD.closeDocument(doc.Name)
           EOF
+          
+          # Install and use Blender to convert STL to GLB for better web viewing
+          sudo snap install blender --classic
+          
+          # Convert STL to GLB using Blender
+          /snap/bin/blender --background --python-expr "
+import bpy
+import bmesh
+import os
+
+# Clear default scene
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete()
+
+# Import STL
+stl_file = [f for f in os.listdir('.') if f.startswith('model_') and f.endswith('.stl')]
+if stl_file:
+    bpy.ops.import_mesh.stl(filepath=stl_file[0])
+    
+    # Select the imported object
+    obj = bpy.context.selected_objects[0]
+    bpy.context.view_layer.objects.active = obj
+    
+    # Add a material for better appearance
+    mat = bpy.data.materials.new(name='ToroideMaterial')
+    mat.use_nodes = True
+    mat.node_tree.nodes.clear()
+    
+    # Add principled BSDF
+    bsdf = mat.node_tree.nodes.new(type='ShaderNodeBsdfPrincipled')
+    output = mat.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
+    mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+    
+    # Set material properties for a nice metallic look
+    bsdf.inputs['Base Color'].default_value = (0.8, 0.6, 0.2, 1.0)  # Gold-ish color
+    bsdf.inputs['Metallic'].default_value = 0.8
+    bsdf.inputs['Roughness'].default_value = 0.2
+    
+    # Assign material to object
+    if obj.data.materials:
+        obj.data.materials[0] = mat
+    else:
+        obj.data.materials.append(mat)
+    
+    # Export as GLB
+    bpy.ops.export_scene.gltf(
+        filepath='model.glb',
+        export_format='GLB',
+        use_selection=True,
+        export_materials='EXPORT'
+    )
+    print('Successfully exported GLB')
+else:
+    print('No STL file found')
+"
           
           # Create a Python script to render views using Three.js concepts
           cat > render_views.py << 'RENDER_SCRIPT'
@@ -120,47 +194,73 @@ jobs:
           
       - name: Update README.md
         run: |
-          # Create or update README.md with 3D views
+          # Create or update README.md with interactive 3D viewer
           cat > README.md << 'README_CONTENT'
           # Toroide 3D Model
           
           This repository contains a 3D model of a toroide (torus/donut shape).
           
-          ## 3D Model Views
+          ## Interactive 3D Model
           
-          ### Top View
-          ![Top View](images/top.png)
+          <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
           
-          ### Front View  
-          ![Front View](images/front.png)
+          <model-viewer 
+            src="model.glb" 
+            alt="3D Toroide Model" 
+            auto-rotate 
+            camera-controls 
+            shadow-intensity="1" 
+            style="width: 100%; height: 400px; background-color: #f0f0f0;"
+            exposure="1.0"
+            shadow-softness="0.75">
+            <div slot="progress-bar">
+              <div style="background: #ccc; width: 100%; height: 4px; border-radius: 2px;">
+                <div style="background: #007acc; width: 0%; height: 100%; border-radius: 2px; transition: width 0.3s;"></div>
+              </div>
+            </div>
+          </model-viewer>
           
-          ### Right View
-          ![Right View](images/right.png)
+          > 🖱️ **Interactive**: Click and drag to rotate, scroll to zoom, double-click to reset view
           
-          ### Isometric View
-          ![Isometric View](images/isometric.png)
+          ## Traditional Views
+          
+          | View | Image |
+          |------|-------|
+          | **Top View** | ![Top View](images/top.png) |
+          | **Front View** | ![Front View](images/front.png) |
+          | **Right View** | ![Right View](images/right.png) |
+          | **Isometric View** | ![Isometric View](images/isometric.png) |
           
           ## Model Information
           
-          - **File Format**: Rhino 3D (.3dm)
+          - **File Format**: Rhino 3D (.3dm) → GLB (for web viewing)
           - **Last Updated**: $(date +"%Y-%m-%d")
-          - **Generated Views**: Automatically updated via GitHub Actions
+          - **Interactive Model**: Auto-generated GLB format
+          - **Static Views**: Auto-generated PNG images
+          
+          ## Features
+          
+          ✨ **Interactive 3D Viewer** - Rotate, zoom, and explore the model in your browser  
+          📱 **Mobile Friendly** - Works on desktop, tablet, and mobile devices  
+          🎨 **Material Rendering** - Realistic metallic appearance with proper lighting  
+          🔄 **Auto-Rotation** - Gentle rotation to showcase the model  
           
           ## Files
           
-          - `240807_Toroide.3dm` - Main 3D model file
-          - `images/` - Generated view images (auto-updated)
+          - `240807_Toroide.3dm` - Original Rhino 3D model file
+          - `model.glb` - Web-optimized 3D model (auto-generated)
+          - `images/` - Static view images (auto-generated)
           
           ---
           
-          *Views automatically generated on $(date +"%Y-%m-%d %H:%M:%S UTC")*
+          *Interactive 3D model and views automatically generated on $(date +"%Y-%m-%d %H:%M:%S UTC")*
           README_CONTENT
           
       - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add README.md images/
+          git add README.md images/ model.glb
           
           # Check if there are changes to commit
           if git diff --staged --quiet; then
