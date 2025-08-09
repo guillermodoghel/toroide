@@ -58,142 +58,34 @@ jobs:
             exit 1
           fi
           
-      - name: Update README.md
+      - name: Update image generation timestamp  
         env:
-          CURRENT_DATE: ${{ steps.date.outputs.current_date }}
+          CURRENT_DATETIME: ${{ steps.date.outputs.current_datetime }}
+        run: |
+          # Create a simple timestamp file for the images
+          echo "Images last generated: ${CURRENT_DATETIME}" > images/.timestamp
+          echo "✅ Generated new 3D views from actual toroide geometry"
+          
+      - name: Commit and push changes
+        env:
           CURRENT_DATETIME: ${{ steps.date.outputs.current_datetime }}
           MODEL_NAME: ${{ steps.model.outputs.model_name }}
           MODEL_SIZE: ${{ steps.model.outputs.model_size }}
         run: |
-          cat > README.md << 'EOF'
-          # Toroide 3D Model
-          
-          This repository contains a 3D model of a toroide (torus/donut shape) created in Rhino 3D.
-          
-          ## 3D Model Views
-          
-          <div align="center">
-          
-          ### Isometric View
-          ![Isometric View](images/isometric.png)
-          
-          <table>
-            <tr>
-              <td align="center">
-                <strong>Top View</strong><br/>
-                <img src="images/top.png" alt="Top View" width="300"/>
-              </td>
-              <td align="center">
-                <strong>Front View</strong><br/>
-                <img src="images/front.png" alt="Front View" width="300"/>
-              </td>
-              <td align="center">
-                <strong>Right View</strong><br/>
-                <img src="images/right.png" alt="Right View" width="300"/>
-              </td>
-            </tr>
-          </table>
-          
-          </div>
-          
-          ## Interactive 3D Viewing
-          
-          To view this model interactively:
-          
-          1. **Download the file**: [`${MODEL_NAME}`](${MODEL_NAME}) (${MODEL_SIZE})
-          2. **Online viewers**:
-             - [3DViewer.net](https://3dviewer.net/) - Upload and view in browser
-             - [Online 3D Viewer](https://viewer.3dprintcloud.com/) - Another web-based option
-          3. **Desktop software**:
-             - Rhino 3D (native format)
-             - FreeCAD (open source)
-             - Blender (with import plugins)
-          
-          ## Model Information
-          
-          | Property | Value |
-          |----------|-------|
-          | **Format** | Rhino 3D (.3dm) |
-          | **File Size** | ${MODEL_SIZE} |
-          | **Last Updated** | ${CURRENT_DATE} |
-          | **Views Generated** | ${CURRENT_DATETIME} |
-          | **Type** | Parametric torus/donut shape |
-          
-          ## Files Structure
-          
-          ```
-          toroide/
-          ├── ${MODEL_NAME}           # Main 3D model file
-          ├── generate_3d_views.py         # View generation script
-          ├── requirements.txt             # Python dependencies  
-          ├── images/                      # Rendered view images
-          │   ├── front.png               # Front orthographic view
-          │   ├── isometric.png           # Isometric (3/4) view
-          │   ├── right.png               # Right side orthographic view
-          │   └── top.png                 # Top orthographic view
-          └── README.md                   # This documentation
-          ```
-          
-          ## Technical Notes
-          
-          - The model is created and maintained in **Rhino 3D**
-          - Views are automatically generated using **rhino3dm** Python library
-          - The `generate_3d_views.py` script extracts actual geometry from the 3DM file
-          - Static orthographic and isometric views are rendered as PNG images
-          - For the best interactive experience, download the `.3dm` file and open in compatible software
-          - GitHub doesn't support native 3D file preview, but the static images provide comprehensive views
-          
-          ## Local Development
-          
-          To generate views locally:
-          
-          ```bash
-          # Create virtual environment
-          python -m venv venv
-          source venv/bin/activate  # On Windows: venv\Scripts\activate
-          
-          # Install dependencies
-          pip install -r requirements.txt
-          
-          # Generate views
-          python generate_3d_views.py --output images
-          
-          # Force fallback torus (for testing)
-          python generate_3d_views.py --fallback
-          ```
-          
-          ## Generation Details
-          
-          - **View Generation**: Automated via GitHub Actions using rhino3dm library
-          - **Script**: `generate_3d_views.py` with proper 3DM geometry extraction
-          - **Rendering**: matplotlib with custom orthographic projections
-          - **Update Frequency**: Automatically triggered on model file changes
-          - **Fallback**: Creates sample torus if original geometry cannot be processed
-          
-          ---
-          
-          <div align="center">
-          <em>Documentation and views automatically updated on ${CURRENT_DATETIME}</em><br/>
-          <em>🔄 Generated using rhino3dm Python library</em>
-          </div>
-          EOF
-          
-      - name: Commit and push changes
-        run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add README.md images/
+          git add images/
           
           # Check if there are changes to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "🖼️ Auto-generate 3D model views from actual geometry
+            git commit -m "🖼️ Auto-update 3D model view images
             
-            - Processed ${MODEL_NAME} (${MODEL_SIZE}) using rhino3dm
-            - Generated wireframe views from actual 3DM geometry  
-            - Updated documentation on ${CURRENT_DATETIME}
+            - Generated wireframe views from ${MODEL_NAME} (${MODEL_SIZE})
+            - Extracted real geometry using rhino3dm library
+            - Updated on ${CURRENT_DATETIME}
             
-            🤖 Auto-generated using separate Python script"
+            🤖 Images only - README preserved"
             git push
           fi
