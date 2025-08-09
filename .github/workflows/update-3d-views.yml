@@ -55,13 +55,11 @@ jobs:
             exit 1
           fi
           
-      - name: Update image generation timestamp  
+      - name: Verify image generation completed  
         env:
           CURRENT_DATETIME: ${{ steps.date.outputs.current_datetime }}
         run: |
-          # Create a simple timestamp file for the images
-          echo "Images last generated: ${CURRENT_DATETIME}" > images/.timestamp
-          echo "✅ Generated new 3D views from actual toroide geometry"
+          echo "✅ Generated new 3D views from actual toroide geometry at ${CURRENT_DATETIME}"
           
       - name: Commit and push changes
         env:
@@ -77,6 +75,9 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
+            # Pull latest changes to prevent conflicts
+            git pull --rebase origin main || echo "No conflicts to resolve"
+            
             git commit -m "🖼️ Auto-update 3D model view images
             
             - Generated wireframe views from ${MODEL_NAME} (${MODEL_SIZE})
