@@ -27,16 +27,13 @@ jobs:
         with:
           python-version: '3.11'
           
-      - name: Create virtual environment and install dependencies
+      - name: Install Python dependencies
         run: |
-          python -m venv venv
-          source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
           
       - name: Generate 3D model views
         run: |
-          source venv/bin/activate
           python generate_3d_views.py --output images
           
       - name: Get current date

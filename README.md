@@ -1,6 +1,6 @@
-# Toroide 3D Model
+# Toroide
 
-This repository contains a 3D model of a toroide (torus/donut shape) created in Rhino 3D.
+Toroide - FA 2026
 
 ## 3D Model Views
 
@@ -27,19 +27,6 @@ This repository contains a 3D model of a toroide (torus/donut shape) created in 
 </table>
 
 </div>
-
-## Interactive 3D Viewing
-
-To view this model interactively:
-
-1. **Download the file**: [`${MODEL_NAME}`](${MODEL_NAME}) (${MODEL_SIZE})
-2. **Online viewers**:
-   - [3DViewer.net](https://3dviewer.net/) - Upload and view in browser
-   - [Online 3D Viewer](https://viewer.3dprintcloud.com/) - Another web-based option
-3. **Desktop software**:
-   - Rhino 3D (native format)
-   - FreeCAD (open source)
-   - Blender (with import plugins)
 
 ## Model Information
 
@@ -101,10 +88,3 @@ python generate_3d_views.py --fallback
 - **Rendering**: matplotlib with custom orthographic projections
 - **Update Frequency**: Automatically triggered on model file changes
 - **Fallback**: Creates sample torus if original geometry cannot be processed
-
----
-
-<div align="center">
-<em>Documentation and views automatically updated on ${CURRENT_DATETIME}</em><br/>
-<em>🔄 Generated using rhino3dm Python library</em>
-</div>
