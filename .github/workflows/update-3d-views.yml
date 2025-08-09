@@ -7,6 +7,8 @@ on:
       - '**.3dm'
       - '.github/workflows/update-3d-views.yml'
       - 'README.md'
+      - 'generate_3d_views.py'
+      - 'requirements.txt'
   schedule:
     # Run weekly to keep timestamps fresh
     - cron: '0 0 * * 0'
@@ -28,284 +30,17 @@ jobs:
         with:
           python-version: '3.11'
           
-      - name: Install Python dependencies
+      - name: Create virtual environment and install dependencies
         run: |
-          pip install rhino3dm matplotlib pillow numpy requests plotly kaleido
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
           
       - name: Generate 3D model views
         run: |
-          mkdir -p images
-          
-          # Create Python script to generate proper CAD-style views from 3DM file
-          cat > generate_views.py << 'EOF'
-          import matplotlib.pyplot as plt
-          import matplotlib.patches as patches
-          import numpy as np
-          from PIL import Image, ImageDraw, ImageFont
-          import os
-          import sys
-          
-          def find_3dm_file():
-              """Find the first .3dm file in the current directory"""
-              for file in os.listdir('.'):
-                  if file.endswith('.3dm'):
-                      return file
-              return None
-          
-          def create_torus_wireframe(major_radius=25, minor_radius=8, u_count=32, v_count=16):
-              """Create wireframe lines for a torus"""
-              lines = []
-              
-              # Create U-direction curves (around the major radius)
-              for i in range(u_count):
-                  u = 2 * np.pi * i / u_count
-                  curve_points = []
-                  for j in range(v_count + 1):  # +1 to close the curve
-                      v = 2 * np.pi * j / v_count
-                      x = (major_radius + minor_radius * np.cos(v)) * np.cos(u)
-                      y = (major_radius + minor_radius * np.cos(v)) * np.sin(u)
-                      z = minor_radius * np.sin(v)
-                      curve_points.append([x, y, z])
-                  lines.append(curve_points)
-              
-              # Create V-direction curves (around the minor radius)
-              for j in range(0, v_count, 2):  # Every other line to avoid clutter
-                  v = 2 * np.pi * j / v_count
-                  curve_points = []
-                  for i in range(u_count + 1):  # +1 to close the curve
-                      u = 2 * np.pi * i / u_count
-                      x = (major_radius + minor_radius * np.cos(v)) * np.cos(u)
-                      y = (major_radius + minor_radius * np.cos(v)) * np.sin(u)
-                      z = minor_radius * np.sin(v)
-                      curve_points.append([x, y, z])
-                  lines.append(curve_points)
-              
-              return lines
-          
-          def project_and_draw_wireframe(lines, view_name, bounds, size=(800, 600)):
-              """Create CAD-style wireframe views"""
-              print(f"Creating {view_name} wireframe view with {len(lines)} curves...")
-              
-              min_x, min_y, min_z, max_x, max_y, max_z = bounds
-              
-              # Create figure with proper CAD styling
-              fig, ax = plt.subplots(figsize=(10, 7.5), dpi=100)
-              ax.set_facecolor('white')
-              
-              # Project each line onto the appropriate plane
-              for line in lines:
-                  line_array = np.array(line)
-                  
-                  if view_name == 'top':
-                      # Top view (looking down Z axis)
-                      x, y = line_array[:, 0], line_array[:, 1]
-                      ax.plot(x, y, 'k-', linewidth=1.2, alpha=0.8)
-                      
-                  elif view_name == 'front':
-                      # Front view (looking along Y axis)
-                      x, y = line_array[:, 0], line_array[:, 2]
-                      ax.plot(x, y, 'k-', linewidth=1.2, alpha=0.8)
-                      
-                  elif view_name == 'right':
-                      # Right view (looking along X axis)
-                      x, y = line_array[:, 1], line_array[:, 2]
-                      ax.plot(x, y, 'k-', linewidth=1.2, alpha=0.8)
-                      
-                  elif view_name == 'isometric':
-                      # Isometric view with proper 3D projection
-                      iso_x = line_array[:, 0] - line_array[:, 1] * 0.5
-                      iso_y = line_array[:, 2] + (line_array[:, 0] + line_array[:, 1]) * 0.25
-                      ax.plot(iso_x, iso_y, 'k-', linewidth=1.0, alpha=0.7)
-              
-              # Set view-specific properties
-              if view_name == 'top':
-                  ax.set_xlim(min_x - 5, max_x + 5)
-                  ax.set_ylim(min_y - 5, max_y + 5)
-                  ax.set_xlabel('X', fontsize=12, fontweight='bold')
-                  ax.set_ylabel('Y', fontsize=12, fontweight='bold')
-                  ax.set_title('Top View', fontsize=16, pad=20, fontweight='bold')
-                  
-              elif view_name == 'front':
-                  ax.set_xlim(min_x - 5, max_x + 5)
-                  ax.set_ylim(min_z - 5, max_z + 5)
-                  ax.set_xlabel('X', fontsize=12, fontweight='bold')
-                  ax.set_ylabel('Z', fontsize=12, fontweight='bold')
-                  ax.set_title('Front View', fontsize=16, pad=20, fontweight='bold')
-                  
-              elif view_name == 'right':
-                  ax.set_xlim(min_y - 5, max_y + 5)
-                  ax.set_ylim(min_z - 5, max_z + 5)
-                  ax.set_xlabel('Y', fontsize=12, fontweight='bold')
-                  ax.set_ylabel('Z', fontsize=12, fontweight='bold')
-                  ax.set_title('Right View', fontsize=16, pad=20, fontweight='bold')
-                  
-              elif view_name == 'isometric':
-                  ax.set_title('Isometric View', fontsize=16, pad=20, fontweight='bold')
-                  ax.set_xlabel('')
-                  ax.set_ylabel('')
-                  # Remove axis for isometric view for cleaner look
-                  ax.set_xticks([])
-                  ax.set_yticks([])
-              
-              # CAD-style formatting
-              ax.set_aspect('equal', adjustable='box')
-              ax.grid(True, alpha=0.3, linewidth=0.5, color='gray')
-              ax.spines['top'].set_visible(False)
-              ax.spines['right'].set_visible(False)
-              ax.spines['left'].set_color('gray')
-              ax.spines['bottom'].set_color('gray')
-              
-              # Add dimension-style annotations for orthographic views
-              if view_name in ['top', 'front', 'right']:
-                  # Add center lines
-                  if view_name == 'top':
-                      ax.axhline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-                      ax.axvline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-                  elif view_name == 'front':
-                      ax.axhline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-                      ax.axvline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-                  elif view_name == 'right':
-                      ax.axhline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-                      ax.axvline(0, color='red', linestyle='--', alpha=0.5, linewidth=1)
-              
-              plt.tight_layout()
-              output_path = f'images/{view_name}.png'
-              plt.savefig(output_path, dpi=150, bbox_inches='tight', 
-                         facecolor='white', edgecolor='none', format='png')
-              plt.close()
-              print(f"✅ Saved {view_name} wireframe view to {output_path}")
-          
-          def extract_geometry_from_3dm(model_file):
-              """Try to extract actual geometry from 3DM file"""
-              try:
-                  import rhino3dm as rhino
-                  print(f"Reading 3DM file: {model_file}")
-                  model = rhino.File3dm.Read(model_file)
-                  
-                  if not model or len(model.Objects) == 0:
-                      print("No objects found in 3DM file")
-                      return None
-                  
-                  print(f"Found {len(model.Objects)} objects")
-                  
-                  all_curves = []
-                  
-                  for obj in model.Objects:
-                      geom = obj.Geometry
-                      if not geom:
-                          continue
-                      
-                      try:
-                          # Try to extract curves/edges from the geometry
-                          if hasattr(geom, 'ToBrep'):
-                              brep = geom.ToBrep()
-                              if brep and hasattr(brep, 'Edges'):
-                                  for edge in brep.Edges:
-                                      if edge and hasattr(edge, 'ToNurbsCurve'):
-                                          curve = edge.ToNurbsCurve()
-                                          if curve and hasattr(curve, 'Points'):
-                                              points = []
-                                              for i in range(curve.Points.Count):
-                                                  pt = curve.Points[i].Location
-                                                  points.append([pt.X, pt.Y, pt.Z])
-                                              if len(points) > 1:
-                                                  all_curves.append(points)
-                          
-                          elif hasattr(geom, 'ToNurbsCurve'):
-                              curve = geom.ToNurbsCurve()
-                              if curve and hasattr(curve, 'Points'):
-                                  points = []
-                                  for i in range(curve.Points.Count):
-                                      pt = curve.Points[i].Location
-                                      points.append([pt.X, pt.Y, pt.Z])
-                                  if len(points) > 1:
-                                      all_curves.append(points)
-                      except Exception as e:
-                          print(f"Error extracting from object: {e}")
-                          continue
-                  
-                  if len(all_curves) > 0:
-                      print(f"Extracted {len(all_curves)} curves from 3DM")
-                      return all_curves
-                  else:
-                      print("No curves could be extracted from 3DM")
-                      return None
-                      
-              except ImportError:
-                  print("rhino3dm not available")
-                  return None
-              except Exception as e:
-                  print(f"Error reading 3DM file: {e}")
-                  return None
-          
-          def main():
-              print("🔄 Starting CAD-style view generation...")
-              
-              # Set matplotlib backend
-              plt.switch_backend('Agg')
-              
-              # Try to extract from 3DM file first
-              extracted_geometry = None
-              model_file = find_3dm_file()
-              if model_file:
-                  extracted_geometry = extract_geometry_from_3dm(model_file)
-              
-              # Use extracted geometry or fallback to torus wireframe
-              if extracted_geometry:
-                  print("Using extracted geometry from 3DM file")
-                  wireframe_lines = extracted_geometry
-                  # Calculate bounds from extracted geometry
-                  all_points = []
-                  for line in wireframe_lines:
-                      all_points.extend(line)
-                  if all_points:
-                      points_array = np.array(all_points)
-                      bounds = (points_array[:, 0].min(), points_array[:, 1].min(), points_array[:, 2].min(),
-                               points_array[:, 0].max(), points_array[:, 1].max(), points_array[:, 2].max())
-                  else:
-                      bounds = (-35, -35, -12, 35, 35, 12)
-              else:
-                  print("Creating parametric torus wireframe as fallback")
-                  wireframe_lines = create_torus_wireframe()
-                  bounds = (-35, -35, -12, 35, 35, 12)
-              
-              print(f"Generated {len(wireframe_lines)} wireframe curves")
-              print(f"Geometry bounds: {bounds}")
-              
-              # Generate views
-              views = ['top', 'front', 'right', 'isometric']
-              for view in views:
-                  project_and_draw_wireframe(wireframe_lines, view, bounds)
-              
-              print("✅ All CAD-style views generated successfully!")
-              return True
-          
-          if __name__ == "__main__":
-              try:
-                  success = main()
-                  sys.exit(0 if success else 1)
-              except Exception as e:
-                  print(f"💥 Fatal error: {e}")
-                  import traceback
-                  traceback.print_exc()
-                  sys.exit(1)
-          EOF
-          
-          # Run the view generation script
-          python generate_views.py
-          
-          # Verify images were created and show info
-          echo "📊 Generated CAD-style images:"
-          ls -la images/
-          echo ""
-          echo "🖼️ Image details:"
-          for img in images/*.png; do
-            if [ -f "$img" ]; then
-              echo "  $(basename "$img"): $(identify -format '%wx%h %b' "$img" 2>/dev/null || echo 'unknown format')"
-            fi
-          done
+          source venv/bin/activate
+          python generate_3d_views.py --output images
           
       - name: Get current date
         id: date
@@ -392,6 +127,8 @@ jobs:
           ```
           toroide/
           ├── ${MODEL_NAME}           # Main 3D model file
+          ├── generate_3d_views.py         # View generation script
+          ├── requirements.txt             # Python dependencies  
           ├── images/                      # Rendered view images
           │   ├── front.png               # Front orthographic view
           │   ├── isometric.png           # Isometric (3/4) view
@@ -404,13 +141,34 @@ jobs:
           
           - The model is created and maintained in **Rhino 3D**
           - Views are automatically generated using **rhino3dm** Python library
+          - The `generate_3d_views.py` script extracts actual geometry from the 3DM file
           - Static orthographic and isometric views are rendered as PNG images
           - For the best interactive experience, download the `.3dm` file and open in compatible software
           - GitHub doesn't support native 3D file preview, but the static images provide comprehensive views
           
+          ## Local Development
+          
+          To generate views locally:
+          
+          ```bash
+          # Create virtual environment
+          python -m venv venv
+          source venv/bin/activate  # On Windows: venv\Scripts\activate
+          
+          # Install dependencies
+          pip install -r requirements.txt
+          
+          # Generate views
+          python generate_3d_views.py --output images
+          
+          # Force fallback torus (for testing)
+          python generate_3d_views.py --fallback
+          ```
+          
           ## Generation Details
           
           - **View Generation**: Automated via GitHub Actions using rhino3dm library
+          - **Script**: `generate_3d_views.py` with proper 3DM geometry extraction
           - **Rendering**: matplotlib with custom orthographic projections
           - **Update Frequency**: Automatically triggered on model file changes
           - **Fallback**: Creates sample torus if original geometry cannot be processed
@@ -433,12 +191,12 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "🖼️ Auto-generate 3D model views and update README
+            git commit -m "🖼️ Auto-generate 3D model views from actual geometry
             
-            - Generated orthographic and isometric views from ${MODEL_NAME}
-            - Updated model info: ${MODEL_SIZE} file size
-            - Refreshed documentation on ${CURRENT_DATETIME}
+            - Processed ${MODEL_NAME} (${MODEL_SIZE}) using rhino3dm
+            - Generated wireframe views from actual 3DM geometry  
+            - Updated documentation on ${CURRENT_DATETIME}
             
-            🤖 Auto-generated using rhino3dm Python library"
+            🤖 Auto-generated using separate Python script"
             git push
           fi
