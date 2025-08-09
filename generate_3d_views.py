@@ -444,7 +444,7 @@ def main():
     if wireframe_lines is None or len(wireframe_lines) == 0:
         print("💥 FAILED: No geometry could be extracted from the 3DM file")
         print("🔍 Check:")
-        print("   1. Layer names match exactly: 'Costilla Vertebra' and 'Vias'")
+        print("   1. Layer names match exactly: 'Costilla' 'Vertebra' and 'Vias'")
         print("   2. Objects on those layers have valid geometry")
         print("   3. rhino3dm library can access the geometry")
         return False
