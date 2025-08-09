@@ -67,13 +67,21 @@ toroide/
 ## Technical Notes
 
 - The model is created and maintained in **Rhino 3D**
-- Static orthographic and isometric views are pre-rendered as PNG images
+- Views are automatically generated using **rhino3dm** Python library
+- Static orthographic and isometric views are rendered as PNG images
 - For the best interactive experience, download the `.3dm` file and open in compatible software
 - GitHub doesn't support native 3D file preview, but the static images provide comprehensive views
+
+## Generation Details
+
+- **View Generation**: Automated via GitHub Actions using rhino3dm library
+- **Rendering**: matplotlib with custom orthographic projections
+- **Update Frequency**: Automatically triggered on model file changes
+- **Fallback**: Creates sample torus if original geometry cannot be processed
 
 ---
 
 <div align="center">
-<em>Documentation automatically updated on ${CURRENT_DATETIME}</em><br/>
-<em>🔄 This README is refreshed automatically when the 3D model changes</em>
+<em>Documentation and views automatically updated on ${CURRENT_DATETIME}</em><br/>
+<em>🔄 Generated using rhino3dm Python library</em>
 </div>
