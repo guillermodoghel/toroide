@@ -243,6 +243,94 @@ def extract_actual_geometry_from_3dm(model_file):
                     
                     print(f"    📊 Total extracted from Brep: {edges_extracted} curves")
                 
+                elif hasattr(geom, 'ToBrep') or 'Extrusion' in type(geom).__name__:
+                    # It's an Extrusion - extract profile curves using Profile3d method
+                    print(f"  🏗️ Extrusion object - extracting profile curves")
+                    edges_extracted = 0
+                    try:
+                        # Extract profile curves using Profile3d method
+                        if hasattr(geom, 'Profile3d'):
+                            try:
+                                # Extract profile curves with different indices (start and end of extrusion)
+                                for profile_idx in range(5):  # Try first few profiles
+                                    try:
+                                        # Get profile curve at parameter s=0.0 (start of extrusion)
+                                        profile_curve = geom.Profile3d(profile_idx, 0.0)
+                                        if profile_curve:
+                                            points = sample_curve_points(profile_curve)
+                                            if len(points) > 1:
+                                                all_curves_with_layers.append((points, layer_name))
+                                                edges_extracted += 1
+                                        
+                                        # Also try at parameter s=1.0 (end of extrusion) 
+                                        profile_curve_end = geom.Profile3d(profile_idx, 1.0)
+                                        if profile_curve_end:
+                                            points_end = sample_curve_points(profile_curve_end)
+                                            if len(points_end) > 1:
+                                                all_curves_with_layers.append((points_end, layer_name))
+                                                edges_extracted += 1
+                                                
+                                    except Exception:
+                                        # Expected to fail when we run out of valid profiles
+                                        break
+                                        
+                            except Exception as e:
+                                print(f"    ❌ Profile3d access failed: {e}")
+                        
+                        # Try to extract path curves if available
+                        for method in ['PathCurve', 'GetPath']:
+                            if hasattr(geom, method):
+                                try:
+                                    value = getattr(geom, method)
+                                    if callable(value):
+                                        result = value()
+                                        if result and not hasattr(result, 'X'):  # Not a point, try as curve
+                                            points = sample_curve_points(result)
+                                            if len(points) > 1:
+                                                all_curves_with_layers.append((points, layer_name))
+                                                edges_extracted += 1
+                                except Exception:
+                                    continue
+                        
+                        
+                        # If direct access doesn't work, try converting to Brep as fallback
+                        if edges_extracted == 0:
+                            print(f"    🔄 Profile curves not found, trying Brep conversion")
+                            brep = geom.ToBrep(True)
+                            if brep and hasattr(brep, 'Edges'):
+                                print(f"    🔍 Found {len(brep.Edges)} edges in Extrusion Brep")
+                                
+                                for edge_idx, edge in enumerate(brep.Edges):
+                                    try:
+                                        curve = None
+                                        # Try alternative edge curve extraction methods
+                                        if hasattr(edge, 'TryGetPlane'):
+                                            # Skip planar edges for cleaner wireframes
+                                            continue
+                                        
+                                        # Try direct curve access
+                                        for method in ['DuplicateCurve', 'EdgeCurve', 'Curve']:
+                                            if hasattr(edge, method):
+                                                curve = getattr(edge, method)
+                                                if callable(curve):
+                                                    curve = curve()
+                                                if curve:
+                                                    break
+                                        
+                                        if curve:
+                                            points = sample_curve_points(curve)
+                                            if len(points) > 1:
+                                                all_curves_with_layers.append((points, layer_name))
+                                                edges_extracted += 1
+                                                print(f"    ✅ Extracted edge {edge_idx} with {len(points)} points")
+                                    except Exception as edge_e:
+                                        continue
+                        
+                        print(f"    📊 Total extracted from Extrusion: {edges_extracted} curves")
+                        
+                    except Exception as extrusion_e:
+                        print(f"  ❌ Error processing Extrusion: {extrusion_e}")
+                        
                 elif hasattr(geom, 'ToNurbsCurve') or 'Curve' in type(geom).__name__:
                     # It's a curve - sample it directly
                     points = sample_curve_points(geom)
