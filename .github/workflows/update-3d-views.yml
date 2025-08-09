@@ -9,9 +9,6 @@ on:
       - 'README.md'
       - 'generate_3d_views.py'
       - 'requirements.txt'
-  schedule:
-    # Run weekly to keep timestamps fresh
-    - cron: '0 0 * * 0'
 
 jobs:
   update-display:
