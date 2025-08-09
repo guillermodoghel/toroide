@@ -144,10 +144,15 @@ def extract_actual_geometry_from_3dm(model_file):
                                 # Try different ways to get curve from edge
                                 curve = None
                                 
-                                if hasattr(edge, 'EdgeCurve'):
+                                # Try various rhino3dm edge curve access methods
+                                if hasattr(edge, 'EdgeCurve') and edge.EdgeCurve:
                                     curve = edge.EdgeCurve
-                                elif hasattr(edge, 'Curve'):
+                                elif hasattr(edge, 'Curve') and edge.Curve:
                                     curve = edge.Curve
+                                elif hasattr(edge, 'DuplicateCurve'):
+                                    curve = edge.DuplicateCurve()
+                                elif hasattr(edge, 'ToNurbsCurve'):
+                                    curve = edge.ToNurbsCurve()
                                 
                                 if curve:
                                     points = sample_curve_points(curve)
@@ -156,17 +161,26 @@ def extract_actual_geometry_from_3dm(model_file):
                                         edges_extracted += 1
                                         print(f"    ✅ Extracted edge {edge_idx} with {len(points)} points")
                                 else:
-                                    print(f"    ⚠️ Edge {edge_idx}: No curve found")
+                                    # Debug: print edge properties
+                                    if edge_idx < 3:  # Only print for first few edges to avoid spam
+                                        edge_props = [attr for attr in dir(edge) if not attr.startswith('_')]
+                                        print(f"    🔍 Edge {edge_idx} properties: {edge_props[:10]}...")
                                     
                             except Exception as e:
                                 print(f"    ⚠️ Edge {edge_idx} error: {e}")
+                                if edge_idx < 3:  # Only print details for first few
+                                    import traceback
+                                    traceback.print_exc()
                     
                     # Method 2: Extract from Face loops if edges didn't work
                     if edges_extracted == 0:
                         print(f"    🔍 Trying face loop extraction...")
                         for face_idx, face in enumerate(geom.Faces):
                             try:
-                                # Extract outer loop
+                                # Try different face boundary extraction methods
+                                extracted_from_face = False
+                                
+                                # Method 2a: OuterLoop.To3dCurve()
                                 if hasattr(face, 'OuterLoop'):
                                     loop = face.OuterLoop
                                     if hasattr(loop, 'To3dCurve'):
@@ -176,10 +190,29 @@ def extract_actual_geometry_from_3dm(model_file):
                                             if len(points) > 1:
                                                 all_curves.append(points)
                                                 edges_extracted += 1
+                                                extracted_from_face = True
                                                 print(f"    ✅ Extracted face {face_idx} outer loop with {len(points)} points")
                                 
-                                # Extract inner loops if any
-                                if hasattr(face, 'Loops'):
+                                # Method 2b: Try getting surface boundary
+                                if not extracted_from_face and hasattr(face, 'ToBrep'):
+                                    try:
+                                        face_brep = face.ToBrep()
+                                        if face_brep and hasattr(face_brep, 'Edges'):
+                                            for edge in face_brep.Edges:
+                                                if hasattr(edge, 'DuplicateCurve'):
+                                                    curve = edge.DuplicateCurve()
+                                                    if curve:
+                                                        points = sample_curve_points(curve)
+                                                        if len(points) > 1:
+                                                            all_curves.append(points)
+                                                            edges_extracted += 1
+                                                            extracted_from_face = True
+                                                            break
+                                    except:
+                                        pass
+                                
+                                # Method 2c: Extract all loops
+                                if not extracted_from_face and hasattr(face, 'Loops'):
                                     for loop_idx, loop in enumerate(face.Loops):
                                         if hasattr(loop, 'To3dCurve'):
                                             curve = loop.To3dCurve()
@@ -188,9 +221,19 @@ def extract_actual_geometry_from_3dm(model_file):
                                                 if len(points) > 1:
                                                     all_curves.append(points)
                                                     edges_extracted += 1
+                                                    extracted_from_face = True
                                                     print(f"    ✅ Extracted face {face_idx} loop {loop_idx} with {len(points)} points")
+                                
+                                # Debug: print face properties if nothing worked
+                                if not extracted_from_face and face_idx < 2:
+                                    face_props = [attr for attr in dir(face) if not attr.startswith('_')]
+                                    print(f"    🔍 Face {face_idx} properties: {face_props[:10]}...")
+                                    
                             except Exception as e:
                                 print(f"    ⚠️ Face {face_idx} error: {e}")
+                                if face_idx < 2:
+                                    import traceback
+                                    traceback.print_exc()
                     
                     print(f"    📊 Total extracted from Brep: {edges_extracted} curves")
                 
