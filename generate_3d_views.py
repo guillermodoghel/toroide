@@ -384,40 +384,24 @@ def create_wireframe_view(wireframe_lines_with_layers, view_name, bounds, output
             ax.plot(x, y, color=color, linewidth=1.2, alpha=0.85)
             
         elif view_name == 'isometric':
-            # Isometric projection with filled 3D surfaces
+            # Isometric projection with clean wireframes and depth styling
             iso_x = line_array[:, 0] - line_array[:, 1] * 0.5
             iso_y = line_array[:, 2] + (line_array[:, 0] + line_array[:, 1]) * 0.25
 
-            # Calculate depth for 3D shading effect
+            # Calculate depth for clean wireframe styling
             depth = line_array[:, 2] + line_array[:, 1] * 0.3
             depth_normalized = (depth - np.min(depth)) / (np.max(depth) - np.min(depth) + 1e-10)
-            avg_depth = np.mean(depth_normalized)
-            
-            # Check if this is a closed curve (for filling)
-            start_point = np.array([iso_x[0], iso_y[0]])
-            end_point = np.array([iso_x[-1], iso_y[-1]])
-            is_closed = np.linalg.norm(start_point - end_point) < 3.0
-            
-            if len(iso_x) > 4 and (is_closed or len(iso_x) > 12):
-                # Create filled surfaces with depth-based shading
-                # Closer surfaces are brighter/more opaque
-                fill_alpha = 0.7 + (1 - avg_depth) * 0.25  # Front surfaces more opaque
-                
-                # Slightly darken the fill color for depth effect
-                import matplotlib.colors as mcolors
-                rgb = mcolors.to_rgb(color)
-                # Make closer surfaces brighter
-                brightness_factor = 0.85 + (1 - avg_depth) * 0.15
-                fill_color = tuple(min(1.0, c * brightness_factor) for c in rgb)
-                
-                # Fill the surface
-                ax.fill(iso_x, iso_y, color=fill_color, alpha=fill_alpha, 
-                       edgecolor=color, linewidth=0.8)
-            else:
-                # Draw wireframe for smaller/open curves
-                line_alpha = 0.8 + (1 - avg_depth) * 0.15
-                line_width = 1.0 + (1 - avg_depth) * 0.4
-                ax.plot(iso_x, iso_y, color=color, linewidth=line_width, alpha=line_alpha)
+
+            # Varying line width and alpha based on depth for clean 3D effect
+            base_alpha = 0.9
+            depth_alpha = base_alpha - depth_normalized * 0.3  # Front lines more opaque
+            avg_alpha = np.mean(depth_alpha)
+
+            base_width = 1.0
+            depth_width = base_width + (1 - depth_normalized) * 0.5  # Front lines thicker
+            avg_width = np.mean(depth_width)
+
+            ax.plot(iso_x, iso_y, color=color, linewidth=avg_width, alpha=avg_alpha)
     
     # Technical CAD-style wireframe views with layer colors
     
