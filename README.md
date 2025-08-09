@@ -28,16 +28,6 @@ Toroide - FA 2026
 
 </div>
 
-## Model Information
-
-| Property | Value |
-|----------|-------|
-| **Format** | Rhino 3D (.3dm) |
-| **File Size** | ${MODEL_SIZE} |
-| **Last Updated** | ${CURRENT_DATE} |
-| **Views Generated** | ${CURRENT_DATETIME} |
-| **Type** | Parametric torus/donut shape |
-
 ## Files Structure
 
 ```
