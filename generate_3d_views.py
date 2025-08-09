@@ -19,6 +19,55 @@ def find_3dm_file(directory='.'):
         return str(file)
     return None
 
+def sample_curve_points(curve, count=50):
+    """Sample points along a curve"""
+    points = []
+    try:
+        # Try multiple approaches for different curve types
+        if hasattr(curve, 'Domain'):
+            domain = curve.Domain
+            # Fix: Use T0 and T1 instead of Min and Max for rhino3dm intervals
+            t_start = domain.T0
+            t_end = domain.T1
+            for i in range(count):
+                t = t_start + (t_end - t_start) * i / (count - 1)
+                if hasattr(curve, 'PointAt'):
+                    pt = curve.PointAt(t)
+                    if pt:
+                        points.append([pt.X, pt.Y, pt.Z])
+                        
+        elif hasattr(curve, 'Points') and hasattr(curve.Points, 'Count'):
+            # NURBS curve with control points
+            point_count = curve.Points.Count
+            step = max(1, point_count // count)
+            for i in range(0, point_count, step):
+                pt = curve.Points[i].Location
+                points.append([pt.X, pt.Y, pt.Z])
+        
+        # Alternative: try direct point access for PolylineCurves
+        elif hasattr(curve, 'PointCount'):
+            point_count = curve.PointCount
+            step = max(1, point_count // count)
+            for i in range(0, point_count, step):
+                if hasattr(curve, 'Point'):
+                    pt = curve.Point(i)
+                    if pt:
+                        points.append([pt.X, pt.Y, pt.Z])
+        
+        # For PolylineCurves, try accessing points directly
+        elif hasattr(curve, 'GetPoints'):
+            curve_points = curve.GetPoints()
+            if curve_points:
+                step = max(1, len(curve_points) // count)
+                for i in range(0, len(curve_points), step):
+                    pt = curve_points[i]
+                    points.append([pt.X, pt.Y, pt.Z])
+                        
+    except Exception as e:
+        print(f"    ❌ Error sampling curve: {e}")
+        
+    return points
+
 def extract_actual_geometry_from_3dm(model_file):
     """Extract real geometry from 3DM file - filtered by specific layers"""
     try:
@@ -40,7 +89,7 @@ def extract_actual_geometry_from_3dm(model_file):
                 print(f"  Layer {layer.Index}: '{layer.Name}'")
         
         # Target layers to extract
-        target_layers = ["Costilla Vertebra", "Vias"]
+        target_layers = ["Costilla", "Vertebra", "Vias"]
         print(f"🎯 Target layers: {target_layers}")
         
         # Print object info for debugging with layer information
@@ -84,20 +133,66 @@ def extract_actual_geometry_from_3dm(model_file):
                     # It's a Brep/Surface - extract edge curves
                     print(f"  📐 Brep with {len(geom.Faces)} faces")
                     
-                    # Extract all edges from the Brep
+                    # Try multiple approaches for Brep edge extraction
+                    edges_extracted = 0
+                    
+                    # Method 1: Extract from Brep.Edges
                     if hasattr(geom, 'Edges'):
+                        print(f"    🔍 Found {len(geom.Edges)} edges in Brep")
                         for edge_idx, edge in enumerate(geom.Edges):
                             try:
-                                # Get the 3D curve from the edge
+                                # Try different ways to get curve from edge
+                                curve = None
+                                
                                 if hasattr(edge, 'EdgeCurve'):
                                     curve = edge.EdgeCurve
-                                    if curve:
-                                        points = sample_curve_points(curve)
-                                        if len(points) > 1:
-                                            all_curves.append(points)
-                                            print(f"    ✅ Extracted edge curve {edge_idx} with {len(points)} points")
+                                elif hasattr(edge, 'Curve'):
+                                    curve = edge.Curve
+                                
+                                if curve:
+                                    points = sample_curve_points(curve)
+                                    if len(points) > 1:
+                                        all_curves.append(points)
+                                        edges_extracted += 1
+                                        print(f"    ✅ Extracted edge {edge_idx} with {len(points)} points")
+                                else:
+                                    print(f"    ⚠️ Edge {edge_idx}: No curve found")
+                                    
                             except Exception as e:
                                 print(f"    ⚠️ Edge {edge_idx} error: {e}")
+                    
+                    # Method 2: Extract from Face loops if edges didn't work
+                    if edges_extracted == 0:
+                        print(f"    🔍 Trying face loop extraction...")
+                        for face_idx, face in enumerate(geom.Faces):
+                            try:
+                                # Extract outer loop
+                                if hasattr(face, 'OuterLoop'):
+                                    loop = face.OuterLoop
+                                    if hasattr(loop, 'To3dCurve'):
+                                        curve = loop.To3dCurve()
+                                        if curve:
+                                            points = sample_curve_points(curve)
+                                            if len(points) > 1:
+                                                all_curves.append(points)
+                                                edges_extracted += 1
+                                                print(f"    ✅ Extracted face {face_idx} outer loop with {len(points)} points")
+                                
+                                # Extract inner loops if any
+                                if hasattr(face, 'Loops'):
+                                    for loop_idx, loop in enumerate(face.Loops):
+                                        if hasattr(loop, 'To3dCurve'):
+                                            curve = loop.To3dCurve()
+                                            if curve:
+                                                points = sample_curve_points(curve)
+                                                if len(points) > 1:
+                                                    all_curves.append(points)
+                                                    edges_extracted += 1
+                                                    print(f"    ✅ Extracted face {face_idx} loop {loop_idx} with {len(points)} points")
+                            except Exception as e:
+                                print(f"    ⚠️ Face {face_idx} error: {e}")
+                    
+                    print(f"    📊 Total extracted from Brep: {edges_extracted} curves")
                 
                 elif hasattr(geom, 'ToNurbsCurve') or 'Curve' in type(geom).__name__:
                     # It's a curve - sample it directly
@@ -114,27 +209,6 @@ def extract_actual_geometry_from_3dm(model_file):
                     all_curves.extend(mesh_curves)
                     print(f"  ✅ Extracted {len(mesh_curves)} mesh edge curves")
                 
-                else:
-                    # Try to convert to Brep first
-                    if hasattr(geom, 'ToBrep'):
-                        try:
-                            brep = geom.ToBrep()
-                            if brep and hasattr(brep, 'Edges'):
-                                print(f"  📐 Converted to Brep with {len(brep.Edges)} edges")
-                                for edge_idx, edge in enumerate(brep.Edges):
-                                    try:
-                                        if hasattr(edge, 'EdgeCurve'):
-                                            curve = edge.EdgeCurve
-                                            if curve:
-                                                points = sample_curve_points(curve)
-                                                if len(points) > 1:
-                                                    all_curves.append(points)
-                                                    print(f"    ✅ Extracted edge curve {edge_idx} with {len(points)} points")
-                                    except Exception as e:
-                                        print(f"    ⚠️ Edge {edge_idx} error: {e}")
-                        except Exception as e:
-                            print(f"  ⚠️ ToBrep conversion error: {e}")
-                
             except Exception as e:
                 print(f"  ❌ Error processing object {i}: {e}")
                 continue
@@ -144,55 +218,20 @@ def extract_actual_geometry_from_3dm(model_file):
             return all_curves
         else:
             print("❌ No curves could be extracted from target layers")
+            print("💡 This could mean:")
+            print("   - Layer names don't match exactly")
+            print("   - Objects don't have extractable geometry")
+            print("   - API calls are failing")
             return None
             
     except ImportError:
         print("❌ rhino3dm library not available")
         return None
     except Exception as e:
-        print(f"❌ Error reading 3DM file: {e}")
+        print("❌ Error reading 3DM file: {e}")
         import traceback
         traceback.print_exc()
         return None
-
-def sample_curve_points(curve, count=50):
-    """Sample points along a curve"""
-    points = []
-    try:
-        if hasattr(curve, 'Domain'):
-            domain = curve.Domain
-            # Fix: Use T0 and T1 instead of Min and Max for rhino3dm intervals
-            t_start = domain.T0
-            t_end = domain.T1
-            for i in range(count):
-                t = t_start + (t_end - t_start) * i / (count - 1)
-                if hasattr(curve, 'PointAt'):
-                    pt = curve.PointAt(t)
-                    if pt:
-                        points.append([pt.X, pt.Y, pt.Z])
-                        
-        elif hasattr(curve, 'Points') and hasattr(curve.Points, 'Count'):
-            # NURBS curve with control points
-            point_count = curve.Points.Count
-            step = max(1, point_count // count)
-            for i in range(0, point_count, step):
-                pt = curve.Points[i].Location
-                points.append([pt.X, pt.Y, pt.Z])
-        
-        # Alternative: try direct point access for PolylineCurves
-        elif hasattr(curve, 'PointCount'):
-            point_count = curve.PointCount
-            step = max(1, point_count // count)
-            for i in range(0, point_count, step):
-                if hasattr(curve, 'Point'):
-                    pt = curve.Point(i)
-                    if pt:
-                        points.append([pt.X, pt.Y, pt.Z])
-                        
-    except Exception as e:
-        print(f"    ❌ Error sampling curve: {e}")
-        
-    return points
 
 def extract_mesh_edges(mesh):
     """Extract edge curves from mesh"""
@@ -221,37 +260,6 @@ def extract_mesh_edges(mesh):
         print(f"    ❌ Error extracting mesh edges: {e}")
         
     return curves
-
-def create_fallback_torus_wireframe(major_radius=25, minor_radius=8, u_count=32, v_count=16):
-    """Create wireframe lines for a torus as fallback"""
-    print("🔄 Creating fallback torus wireframe...")
-    lines = []
-    
-    # U-direction curves (around the major radius)
-    for i in range(u_count):
-        u = 2 * np.pi * i / u_count
-        curve_points = []
-        for j in range(v_count + 1):  # +1 to close the curve
-            v = 2 * np.pi * j / v_count
-            x = (major_radius + minor_radius * np.cos(v)) * np.cos(u)
-            y = (major_radius + minor_radius * np.cos(v)) * np.sin(u)
-            z = minor_radius * np.sin(v)
-            curve_points.append([x, y, z])
-        lines.append(curve_points)
-    
-    # V-direction curves (around the minor radius)
-    for j in range(0, v_count, 2):  # Every other line to avoid clutter
-        v = 2 * np.pi * j / v_count
-        curve_points = []
-        for i in range(u_count + 1):  # +1 to close the curve
-            u = 2 * np.pi * i / u_count
-            x = (major_radius + minor_radius * np.cos(v)) * np.cos(u)
-            y = (major_radius + minor_radius * np.cos(v)) * np.sin(u)
-            z = minor_radius * np.sin(v)
-            curve_points.append([x, y, z])
-        lines.append(curve_points)
-    
-    return lines
 
 def calculate_bounds(wireframe_lines):
     """Calculate bounding box from wireframe curves"""
@@ -366,7 +374,7 @@ def main():
     parser = argparse.ArgumentParser(description='Generate 3D views from Rhino 3DM files')
     parser.add_argument('--input', '-i', help='Input 3DM file path')
     parser.add_argument('--output', '-o', default='images', help='Output directory for images')
-    parser.add_argument('--fallback', action='store_true', help='Force use fallback torus')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output')
     
     args = parser.parse_args()
     
@@ -386,15 +394,17 @@ def main():
     
     print(f"📁 Using 3DM file: {model_file}")
     
-    # Extract geometry
-    wireframe_lines = None
-    if not args.fallback:
-        wireframe_lines = extract_actual_geometry_from_3dm(model_file)
+    # Extract geometry from specific layers only
+    wireframe_lines = extract_actual_geometry_from_3dm(model_file)
     
-    # Use fallback if extraction failed
+    # Fail if no geometry was extracted
     if wireframe_lines is None or len(wireframe_lines) == 0:
-        print("⚠️  Using fallback torus wireframe")
-        wireframe_lines = create_fallback_torus_wireframe()
+        print("💥 FAILED: No geometry could be extracted from the 3DM file")
+        print("🔍 Check:")
+        print("   1. Layer names match exactly: 'Costilla Vertebra' and 'Vias'")
+        print("   2. Objects on those layers have valid geometry")
+        print("   3. rhino3dm library can access the geometry")
+        return False
     
     # Calculate bounds
     bounds = calculate_bounds(wireframe_lines)
@@ -405,7 +415,7 @@ def main():
     for view in views:
         create_wireframe_view(wireframe_lines, view, bounds, args.output)
     
-    print("🎉 All views generated successfully!")
+    print("🎉 All views generated successfully from real geometry!")
     return True
 
 if __name__ == "__main__":
