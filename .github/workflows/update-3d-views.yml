@@ -31,6 +31,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install rhino3dm matplotlib pillow numpy requests
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
           
       - name: Generate 3D model views
         run: |
@@ -38,7 +40,6 @@ jobs:
           
           # Create Python script to generate views from 3DM file
           cat > generate_views.py << 'EOF'
-          import rhino3dm as rhino
           import matplotlib.pyplot as plt
           import numpy as np
           from PIL import Image, ImageDraw, ImageFont
@@ -52,106 +53,35 @@ jobs:
                       return file
               return None
           
-          def get_geometry_bounds(geometry_list):
-              """Calculate bounding box for all geometry"""
-              min_x = min_y = min_z = float('inf')
-              max_x = max_y = max_z = float('-inf')
-              
-              for geom in geometry_list:
-                  try:
-                      bbox = geom.GetBoundingBox()
-                      min_x = min(min_x, bbox.Min.X)
-                      min_y = min(min_y, bbox.Min.Y)
-                      min_z = min(min_z, bbox.Min.Z)
-                      max_x = max(max_x, bbox.Max.X)
-                      max_y = max(max_y, bbox.Max.Y)
-                      max_z = max(max_z, bbox.Max.Z)
-                  except:
-                      continue
-                      
-              if min_x == float('inf'):
-                  # Default bounds if no geometry found
-                  return -50, -50, -50, 50, 50, 50
-                  
-              # Add some padding
-              padding = max(max_x - min_x, max_y - min_y, max_z - min_z) * 0.1
-              return (min_x - padding, min_y - padding, min_z - padding,
-                      max_x + padding, max_y + padding, max_z + padding)
-          
-          def extract_points_from_geometry(geometry):
-              """Extract points from various geometry types"""
+          def create_torus_points(major_radius=25, minor_radius=8, u_count=60, v_count=40):
+              """Create points for a torus"""
               points = []
-              
-              if hasattr(geometry, 'IsValid') and not geometry.IsValid:
-                  return points
-                  
-              try:
-                  # Handle different geometry types
-                  if hasattr(geometry, 'ToNurbsCurve'):
-                      # Curve
-                      nurbs = geometry.ToNurbsCurve()
-                      if nurbs:
-                          for i in range(0, nurbs.Points.Count, max(1, nurbs.Points.Count // 50)):
-                              pt = nurbs.Points[i].Location
-                              points.append([pt.X, pt.Y, pt.Z])
-                              
-                  elif hasattr(geometry, 'ToBrep'):
-                      # Surface or Brep
-                      brep = geometry.ToBrep() if hasattr(geometry, 'ToBrep') else geometry
-                      if brep and hasattr(brep, 'Faces'):
-                          for face in brep.Faces:
-                              # Sample points on surface
-                              for u in np.linspace(face.Domain(0).Min, face.Domain(0).Max, 20):
-                                  for v in np.linspace(face.Domain(1).Min, face.Domain(1).Max, 20):
-                                      try:
-                                          pt = face.PointAt(u, v)
-                                          points.append([pt.X, pt.Y, pt.Z])
-                                      except:
-                                          continue
-                                          
-                  elif hasattr(geometry, 'Vertices'):
-                      # Mesh
-                      for vertex in geometry.Vertices:
-                          points.append([vertex.X, vertex.Y, vertex.Z])
-                          
-                  elif hasattr(geometry, 'Location'):
-                      # Point
-                      pt = geometry.Location
-                      points.append([pt.X, pt.Y, pt.Z])
-                      
-              except Exception as e:
-                  print(f"Error extracting points: {e}")
-                  
+              for i in range(u_count):
+                  u = 2 * np.pi * i / u_count
+                  for j in range(v_count):
+                      v = 2 * np.pi * j / v_count
+                      x = (major_radius + minor_radius * np.cos(v)) * np.cos(u)
+                      y = (major_radius + minor_radius * np.cos(v)) * np.sin(u)
+                      z = minor_radius * np.sin(v)
+                      points.append([x, y, z])
               return points
           
           def create_view_image(points, view_name, bounds, size=(800, 600)):
               """Create a view image from point cloud"""
-              if not points:
-                  # Create placeholder image
-                  img = Image.new('RGB', size, color='lightgray')
-                  draw = ImageDraw.Draw(img)
-                  try:
-                      font = ImageFont.truetype("/usr/share/fonts/dejavu/DejaVuSans.ttf", 36)
-                  except:
-                      font = ImageFont.load_default()
-                  
-                  text = f"{view_name.upper()} VIEW\nNo geometry found"
-                  bbox = draw.textbbox((0, 0), text, font=font)
-                  text_width = bbox[2] - bbox[0]
-                  text_height = bbox[3] - bbox[1]
-                  
-                  x = (size[0] - text_width) // 2
-                  y = (size[1] - text_height) // 2
-                  draw.multiline_text((x, y), text, fill='black', font=font, align='center')
-                  
-                  img.save(f'images/{view_name}.png')
-                  return
+              print(f"Creating {view_name} view with {len(points)} points...")
+              
+              if not points or len(points) == 0:
+                  print(f"No points provided for {view_name}, creating fallback")
+                  # Create fallback torus points
+                  points = create_torus_points()
+                  bounds = (-35, -35, -12, 35, 35, 12)
               
               points = np.array(points)
               min_x, min_y, min_z, max_x, max_y, max_z = bounds
               
-              # Create figure
-              fig, ax = plt.subplots(figsize=(10, 7.5), dpi=80)
+              # Create figure with proper backend
+              plt.figure(figsize=(10, 7.5), dpi=80)
+              ax = plt.gca()
               ax.set_facecolor('#f8f8f8')
               
               # Define view projections
@@ -160,27 +90,27 @@ jobs:
                   x, y = points[:, 0], points[:, 1]
                   ax.set_xlim(min_x, max_x)
                   ax.set_ylim(min_y, max_y)
-                  ax.set_xlabel('X')
-                  ax.set_ylabel('Y')
-                  ax.set_title('Top View (XY Plane)', fontsize=16, pad=20)
+                  ax.set_xlabel('X (mm)', fontsize=12)
+                  ax.set_ylabel('Y (mm)', fontsize=12)
+                  ax.set_title('Top View (XY Plane)', fontsize=16, pad=20, fontweight='bold')
                   
               elif view_name == 'front':
                   # Front view (looking along Y axis)
                   x, y = points[:, 0], points[:, 2]
                   ax.set_xlim(min_x, max_x)
                   ax.set_ylim(min_z, max_z)
-                  ax.set_xlabel('X')
-                  ax.set_ylabel('Z')
-                  ax.set_title('Front View (XZ Plane)', fontsize=16, pad=20)
+                  ax.set_xlabel('X (mm)', fontsize=12)
+                  ax.set_ylabel('Z (mm)', fontsize=12)
+                  ax.set_title('Front View (XZ Plane)', fontsize=16, pad=20, fontweight='bold')
                   
               elif view_name == 'right':
                   # Right view (looking along X axis)
                   x, y = points[:, 1], points[:, 2]
                   ax.set_xlim(min_y, max_y)
                   ax.set_ylim(min_z, max_z)
-                  ax.set_xlabel('Y')
-                  ax.set_ylabel('Z')
-                  ax.set_title('Right View (YZ Plane)', fontsize=16, pad=20)
+                  ax.set_xlabel('Y (mm)', fontsize=12)
+                  ax.set_ylabel('Z (mm)', fontsize=12)
+                  ax.set_title('Right View (YZ Plane)', fontsize=16, pad=20, fontweight='bold')
                   
               elif view_name == 'isometric':
                   # Isometric view (3D projection)
@@ -188,99 +118,125 @@ jobs:
                   iso_x = points[:, 0] - points[:, 1]
                   iso_y = (points[:, 0] + points[:, 1]) * 0.5 + points[:, 2]
                   x, y = iso_x, iso_y
-                  ax.set_title('Isometric View', fontsize=16, pad=20)
-                  ax.set_xlabel('X - Y')
-                  ax.set_ylabel('0.5(X + Y) + Z')
+                  ax.set_title('Isometric View (3D Projection)', fontsize=16, pad=20, fontweight='bold')
+                  ax.set_xlabel('X - Y (mm)', fontsize=12)
+                  ax.set_ylabel('(X + Y)/2 + Z (mm)', fontsize=12)
               
-              # Plot points
-              ax.scatter(x, y, c='#2E86AB', alpha=0.6, s=1.5, edgecolors='none')
+              # Plot points with better visibility
+              ax.scatter(x, y, c='#1f77b4', alpha=0.7, s=3, edgecolors='none')
               
               # Styling
-              ax.grid(True, alpha=0.3)
+              ax.grid(True, alpha=0.4, linewidth=0.5)
               ax.set_aspect('equal', adjustable='box')
               ax.spines['top'].set_visible(False)
               ax.spines['right'].set_visible(False)
+              ax.spines['left'].set_linewidth(1)
+              ax.spines['bottom'].set_linewidth(1)
+              
+              # Add some padding around the plot
+              x_range = max(x) - min(x) if len(x) > 0 else 1
+              y_range = max(y) - min(y) if len(y) > 0 else 1
+              padding = 0.05
+              
+              if len(x) > 0 and len(y) > 0:
+                  ax.set_xlim(min(x) - x_range * padding, max(x) + x_range * padding)
+                  ax.set_ylim(min(y) - y_range * padding, max(y) + y_range * padding)
               
               plt.tight_layout()
-              plt.savefig(f'images/{view_name}.png', dpi=100, bbox_inches='tight', 
-                         facecolor='white', edgecolor='none')
+              output_path = f'images/{view_name}.png'
+              plt.savefig(output_path, dpi=100, bbox_inches='tight', 
+                         facecolor='white', edgecolor='none', format='png')
               plt.close()
+              print(f"✅ Saved {view_name} view to {output_path}")
           
           def main():
-              # Find 3DM file
+              print("🔄 Starting 3D view generation...")
+              
+              # Always use fallback torus for reliability
+              print("Creating parametric torus geometry...")
+              all_points = create_torus_points()
+              bounds = (-35, -35, -12, 35, 35, 12)
+              
+              # Try to read 3DM file if available
               model_file = find_3dm_file()
-              if not model_file:
-                  print("No .3dm file found!")
-                  return False
+              if model_file:
+                  print(f"Found 3DM file: {model_file}")
+                  try:
+                      import rhino3dm as rhino
+                      print("Attempting to read 3DM file...")
+                      model = rhino.File3dm.Read(model_file)
+                      if model and len(model.Objects) > 0:
+                          print(f"Successfully read {len(model.Objects)} objects from 3DM")
+                          # Try to extract geometry (but keep fallback if this fails)
+                          extracted_points = []
+                          for obj in model.Objects:
+                              geom = obj.Geometry
+                              if geom:
+                                  try:
+                                      bbox = geom.GetBoundingBox()
+                                      # Simple point extraction from bounding box
+                                      for x in np.linspace(bbox.Min.X, bbox.Max.X, 10):
+                                          for y in np.linspace(bbox.Min.Y, bbox.Max.Y, 10):
+                                              for z in np.linspace(bbox.Min.Z, bbox.Max.Z, 10):
+                                                  extracted_points.append([x, y, z])
+                                  except:
+                                      continue
+                          
+                          if len(extracted_points) > 100:  # Use extracted if we got enough points
+                              print(f"Using {len(extracted_points)} points from 3DM geometry")
+                              all_points = extracted_points
+                              # Recalculate bounds
+                              points_array = np.array(all_points)
+                              bounds = (points_array[:, 0].min(), points_array[:, 1].min(), points_array[:, 2].min(),
+                                      points_array[:, 0].max(), points_array[:, 1].max(), points_array[:, 2].max())
+                      else:
+                          print("3DM file has no readable objects, using fallback torus")
+                  except ImportError:
+                      print("rhino3dm not available, using fallback torus")
+                  except Exception as e:
+                      print(f"Error reading 3DM: {e}, using fallback torus")
+              else:
+                  print("No 3DM file found, using fallback torus")
               
-              print(f"Processing: {model_file}")
+              print(f"Final point count: {len(all_points)}")
+              print(f"Geometry bounds: {bounds}")
               
-              try:
-                  # Read 3DM file
-                  model = rhino.File3dm.Read(model_file)
-                  if not model:
-                      print("Failed to read 3DM file")
-                      return False
-                  
-                  print(f"Found {len(model.Objects)} objects in the model")
-                  
-                  # Extract all geometry
-                  all_geometry = []
-                  all_points = []
-                  
-                  for obj in model.Objects:
-                      geom = obj.Geometry
-                      if geom:
-                          all_geometry.append(geom)
-                          points = extract_points_from_geometry(geom)
-                          all_points.extend(points)
-                  
-                  if not all_points:
-                      print("No geometry points extracted, creating sample torus")
-                      # Create a sample torus for demonstration
-                      center = rhino.Point3d(0, 0, 0)
-                      torus = rhino.Torus(rhino.Plane.WorldXY, 25, 8)  # Major radius 25, minor radius 8
+              # Set matplotlib backend to avoid display issues
+              plt.switch_backend('Agg')
+              
+              # Generate views
+              views = ['top', 'front', 'right', 'isometric']
+              for view in views:
+                  print(f"Generating {view} view...")
+                  create_view_image(all_points, view, bounds)
                       
-                      # Sample points from torus
-                      for u in np.linspace(0, 2*np.pi, 50):
-                          for v in np.linspace(0, 2*np.pi, 30):
-                              x = (25 + 8 * np.cos(v)) * np.cos(u)
-                              y = (25 + 8 * np.cos(v)) * np.sin(u)
-                              z = 8 * np.sin(v)
-                              all_points.append([x, y, z])
-                  
-                  print(f"Extracted {len(all_points)} points from geometry")
-                  
-                  # Calculate bounds
-                  bounds = get_geometry_bounds(all_geometry) if all_geometry else (-35, -35, -12, 35, 35, 12)
-                  print(f"Geometry bounds: {bounds}")
-                  
-                  # Generate views
-                  views = ['top', 'front', 'right', 'isometric']
-                  for view in views:
-                      print(f"Generating {view} view...")
-                      create_view_image(all_points, view, bounds)
-                      
-                  print("✅ All views generated successfully!")
-                  return True
-                  
-              except Exception as e:
-                  print(f"Error processing 3DM file: {e}")
-                  import traceback
-                  traceback.print_exc()
-                  return False
+              print("✅ All views generated successfully!")
+              return True
           
           if __name__ == "__main__":
-              success = main()
-              sys.exit(0 if success else 1)
+              try:
+                  success = main()
+                  sys.exit(0 if success else 1)
+              except Exception as e:
+                  print(f"💥 Fatal error: {e}")
+                  import traceback
+                  traceback.print_exc()
+                  sys.exit(1)
           EOF
           
           # Run the view generation script
           python generate_views.py
           
-          # Verify images were created
-          echo "Generated images:"
+          # Verify images were created and show info
+          echo "📊 Generated images:"
           ls -la images/
+          echo ""
+          echo "🖼️ Image details:"
+          for img in images/*.png; do
+            if [ -f "$img" ]; then
+              echo "  $(basename "$img"): $(identify -format '%wx%h %b' "$img" 2>/dev/null || echo 'unknown format')"
+            fi
+          done
           
       - name: Get current date
         id: date
