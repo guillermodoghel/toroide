@@ -32,7 +32,7 @@ This repository contains a 3D model of a toroide (torus/donut shape) created in 
 
 To view this model interactively:
 
-1. **Download the file**: [`240807_Toroide.3dm`](240807_Toroide.3dm)
+1. **Download the file**: [`${MODEL_NAME}`](${MODEL_NAME}) (${MODEL_SIZE})
 2. **Online viewers**:
    - [3DViewer.net](https://3dviewer.net/) - Upload and view in browser
    - [Online 3D Viewer](https://viewer.3dprintcloud.com/) - Another web-based option
@@ -46,21 +46,22 @@ To view this model interactively:
 | Property | Value |
 |----------|-------|
 | **Format** | Rhino 3D (.3dm) |
-| **Last Updated** | 2024-12-19 |
-| **Views Generated** | 2024-12-19 |
+| **File Size** | ${MODEL_SIZE} |
+| **Last Updated** | ${CURRENT_DATE} |
+| **Views Generated** | ${CURRENT_DATETIME} |
 | **Type** | Parametric torus/donut shape |
 
 ## Files Structure
 
 ```
 toroide/
-├── 240807_Toroide.3dm          # Main 3D model file
-├── images/                     # Rendered view images
-│   ├── front.png              # Front orthographic view
-│   ├── isometric.png          # Isometric (3/4) view
-│   ├── right.png              # Right side orthographic view
-│   └── top.png                # Top orthographic view
-└── README.md                  # This documentation
+├── ${MODEL_NAME}           # Main 3D model file
+├── images/                      # Rendered view images
+│   ├── front.png               # Front orthographic view
+│   ├── isometric.png           # Isometric (3/4) view
+│   ├── right.png               # Right side orthographic view
+│   └── top.png                 # Top orthographic view
+└── README.md                   # This documentation
 ```
 
 ## Technical Notes
@@ -73,6 +74,6 @@ toroide/
 ---
 
 <div align="center">
-<em>Documentation automatically updated on 2024-12-19</em><br/>
+<em>Documentation automatically updated on ${CURRENT_DATETIME}</em><br/>
 <em>🔄 This README is refreshed automatically when the 3D model changes</em>
 </div>
