@@ -117,7 +117,7 @@ def extract_actual_geometry_from_3dm(model_file):
             print("❌ No objects found on target layers")
             return None
         
-        all_curves = []
+        all_curves_with_layers = []
         
         # Process only objects on target layers
         for i, obj in relevant_objects:
@@ -125,7 +125,13 @@ def extract_actual_geometry_from_3dm(model_file):
             if not geom:
                 continue
                 
-            print(f"🔍 Processing object {i} ({type(geom).__name__})")
+            # Get layer name for this object
+            layer_name = "Unknown"
+            if hasattr(obj, 'Attributes') and hasattr(obj.Attributes, 'LayerIndex'):
+                layer_index = obj.Attributes.LayerIndex
+                layer_name = layers_by_index.get(layer_index, f"Layer_{layer_index}")
+                
+            print(f"🔍 Processing object {i} ({type(geom).__name__}) on layer '{layer_name}'")
             
             try:
                 # Handle different geometry types
@@ -157,7 +163,7 @@ def extract_actual_geometry_from_3dm(model_file):
                                 if curve:
                                     points = sample_curve_points(curve)
                                     if len(points) > 1:
-                                        all_curves.append(points)
+                                        all_curves_with_layers.append((points, layer_name))
                                         edges_extracted += 1
                                         print(f"    ✅ Extracted edge {edge_idx} with {len(points)} points")
                                 else:
@@ -188,7 +194,7 @@ def extract_actual_geometry_from_3dm(model_file):
                                         if curve:
                                             points = sample_curve_points(curve)
                                             if len(points) > 1:
-                                                all_curves.append(points)
+                                                all_curves_with_layers.append((points, layer_name))
                                                 edges_extracted += 1
                                                 extracted_from_face = True
                                                 print(f"    ✅ Extracted face {face_idx} outer loop with {len(points)} points")
@@ -204,7 +210,7 @@ def extract_actual_geometry_from_3dm(model_file):
                                                     if curve:
                                                         points = sample_curve_points(curve)
                                                         if len(points) > 1:
-                                                            all_curves.append(points)
+                                                            all_curves_with_layers.append((points, layer_name))
                                                             edges_extracted += 1
                                                             extracted_from_face = True
                                                             break
@@ -219,7 +225,7 @@ def extract_actual_geometry_from_3dm(model_file):
                                             if curve:
                                                 points = sample_curve_points(curve)
                                                 if len(points) > 1:
-                                                    all_curves.append(points)
+                                                    all_curves_with_layers.append((points, layer_name))
                                                     edges_extracted += 1
                                                     extracted_from_face = True
                                                     print(f"    ✅ Extracted face {face_idx} loop {loop_idx} with {len(points)} points")
@@ -241,7 +247,7 @@ def extract_actual_geometry_from_3dm(model_file):
                     # It's a curve - sample it directly
                     points = sample_curve_points(geom)
                     if len(points) > 1:
-                        all_curves.append(points)
+                        all_curves_with_layers.append((points, layer_name))
                         print(f"  ✅ Extracted curve with {len(points)} points")
                 
                 elif hasattr(geom, 'Vertices'):
@@ -249,16 +255,18 @@ def extract_actual_geometry_from_3dm(model_file):
                     print(f"  📐 Mesh with {len(geom.Vertices)} vertices")
                     # Extract mesh edges as wireframe
                     mesh_curves = extract_mesh_edges(geom)
-                    all_curves.extend(mesh_curves)
+                    # Add layer info to mesh curves
+                    for curve in mesh_curves:
+                        all_curves_with_layers.append((curve, layer_name))
                     print(f"  ✅ Extracted {len(mesh_curves)} mesh edge curves")
                 
             except Exception as e:
                 print(f"  ❌ Error processing object {i}: {e}")
                 continue
         
-        if len(all_curves) > 0:
-            print(f"🎉 Successfully extracted {len(all_curves)} curves from target layers")
-            return all_curves
+        if len(all_curves_with_layers) > 0:
+            print(f"🎉 Successfully extracted {len(all_curves_with_layers)} curves from target layers")
+            return all_curves_with_layers
         else:
             print("❌ No curves could be extracted from target layers")
             print("💡 This could mean:")
@@ -304,10 +312,15 @@ def extract_mesh_edges(mesh):
         
     return curves
 
-def calculate_bounds(wireframe_lines):
-    """Calculate bounding box from wireframe curves"""
+def calculate_bounds(wireframe_lines_with_layers):
+    """Calculate bounding box from wireframe curves with layer info"""
     all_points = []
-    for line in wireframe_lines:
+    for line_data in wireframe_lines_with_layers:
+        if isinstance(line_data, tuple):
+            line, layer_name = line_data
+        else:
+            # Backward compatibility
+            line = line_data
         all_points.extend(line)
     
     if not all_points:
@@ -325,18 +338,33 @@ def calculate_bounds(wireframe_lines):
         points_array[:, 2].max() + padding
     )
 
-def create_wireframe_view(wireframe_lines, view_name, bounds, output_dir='images'):
-    """Create CAD-style wireframe view"""
-    print(f"🖼️  Creating {view_name} view with {len(wireframe_lines)} curves...")
+def create_wireframe_view(wireframe_lines_with_layers, view_name, bounds, output_dir='images'):
+    """Create CAD-style wireframe view with layer colors"""
+    print(f"🖼️  Creating {view_name} view with {len(wireframe_lines_with_layers)} curves...")
     
     min_x, min_y, min_z, max_x, max_y, max_z = bounds
+    
+    # Define colors for each layer
+    layer_colors = {
+        'Costilla': '#2E86AB',    # Professional blue
+        'Vertebra': '#A23B72',    # Deep magenta/red
+        'Vias': '#F18F01'        # Professional orange
+    }
     
     # Create figure
     fig, ax = plt.subplots(figsize=(10, 7.5), dpi=150)
     ax.set_facecolor('white')
     
-    # Plot each wireframe curve
-    for line in wireframe_lines:
+    # Plot each wireframe curve with layer-specific color
+    for line_data in wireframe_lines_with_layers:
+        if isinstance(line_data, tuple):
+            line, layer_name = line_data
+            color = layer_colors.get(layer_name, '#333333')  # Default gray
+        else:
+            # Backward compatibility for old format
+            line = line_data
+            color = '#333333'
+            
         if len(line) < 2:
             continue
             
@@ -345,60 +373,93 @@ def create_wireframe_view(wireframe_lines, view_name, bounds, output_dir='images
         # Project onto appropriate plane
         if view_name == 'top':
             x, y = line_array[:, 0], line_array[:, 1]
-            ax.plot(x, y, 'k-', linewidth=1.0, alpha=0.8)
+            ax.plot(x, y, color=color, linewidth=1.2, alpha=0.85)
             
         elif view_name == 'front':
             x, y = line_array[:, 0], line_array[:, 2]
-            ax.plot(x, y, 'k-', linewidth=1.0, alpha=0.8)
+            ax.plot(x, y, color=color, linewidth=1.2, alpha=0.85)
             
         elif view_name == 'right':
             x, y = line_array[:, 1], line_array[:, 2]
-            ax.plot(x, y, 'k-', linewidth=1.0, alpha=0.8)
+            ax.plot(x, y, color=color, linewidth=1.2, alpha=0.85)
             
         elif view_name == 'isometric':
-            # Isometric projection
+            # Isometric projection with depth-based wireframe styling
             iso_x = line_array[:, 0] - line_array[:, 1] * 0.5
             iso_y = line_array[:, 2] + (line_array[:, 0] + line_array[:, 1]) * 0.25
-            ax.plot(iso_x, iso_y, 'k-', linewidth=0.8, alpha=0.7)
+            
+            # Calculate depth for shading (Z + Y gives a nice depth effect)
+            depth = line_array[:, 2] + line_array[:, 1] * 0.3
+            depth_normalized = (depth - np.min(depth)) / (np.max(depth) - np.min(depth) + 1e-10)
+            
+            # Varying line width and alpha based on depth
+            base_alpha = 0.9
+            depth_alpha = base_alpha - depth_normalized * 0.3  # Front lines more opaque
+            avg_alpha = np.mean(depth_alpha)
+            
+            base_width = 1.0
+            depth_width = base_width + (1 - depth_normalized) * 0.5  # Front lines thicker
+            avg_width = np.mean(depth_width)
+            
+            ax.plot(iso_x, iso_y, color=color, linewidth=avg_width, alpha=avg_alpha)
     
-    # Set view-specific properties
+    # Technical CAD-style wireframe views with layer colors
+    
+    # Set view-specific properties with grids and axes (no titles)
     if view_name == 'top':
         ax.set_xlim(min_x, max_x)
         ax.set_ylim(min_y, max_y)
         ax.set_xlabel('X', fontsize=12, fontweight='bold')
         ax.set_ylabel('Y', fontsize=12, fontweight='bold')
-        ax.set_title('Top View', fontsize=16, pad=20, fontweight='bold')
         
     elif view_name == 'front':
         ax.set_xlim(min_x, max_x)
         ax.set_ylim(min_z, max_z)
         ax.set_xlabel('X', fontsize=12, fontweight='bold')
         ax.set_ylabel('Z', fontsize=12, fontweight='bold')
-        ax.set_title('Front View', fontsize=16, pad=20, fontweight='bold')
         
     elif view_name == 'right':
         ax.set_xlim(min_y, max_y)
         ax.set_ylim(min_z, max_z)
         ax.set_xlabel('Y', fontsize=12, fontweight='bold')
         ax.set_ylabel('Z', fontsize=12, fontweight='bold')
-        ax.set_title('Right View', fontsize=16, pad=20, fontweight='bold')
         
     elif view_name == 'isometric':
-        ax.set_title('Isometric View', fontsize=16, pad=20, fontweight='bold')
-        ax.set_xlabel('')
-        ax.set_ylabel('')
-        ax.set_xticks([])
-        ax.set_yticks([])
+        # Calculate bounds for isometric view with more padding (zoom out)
+        iso_bounds_x = []
+        iso_bounds_y = []
+        for line_data in wireframe_lines_with_layers:
+            if isinstance(line_data, tuple):
+                line, layer_name = line_data
+            else:
+                line = line_data
+            if len(line) >= 2:
+                line_array = np.array(line)
+                iso_x = line_array[:, 0] - line_array[:, 1] * 0.5
+                iso_y = line_array[:, 2] + (line_array[:, 0] + line_array[:, 1]) * 0.25
+                iso_bounds_x.extend(iso_x)
+                iso_bounds_y.extend(iso_y)
+        
+        if iso_bounds_x and iso_bounds_y:
+            padding = 25  # Increased padding for zoom out effect
+            ax.set_xlim(min(iso_bounds_x) - padding, max(iso_bounds_x) + padding)
+            ax.set_ylim(min(iso_bounds_y) - padding, max(iso_bounds_y) + padding)
+        
+        ax.set_xlabel('X-Y', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Z+(X+Y)/4', fontsize=12, fontweight='bold')
     
-    # Styling
+    # Professional CAD-style appearance
     ax.set_aspect('equal', adjustable='box')
     
+    # Add grid and centerlines for technical drawings
+    ax.grid(True, alpha=0.3, linewidth=0.5, color='gray')
+    
+    # Add centerlines for all views except isometric
     if view_name != 'isometric':
-        ax.grid(True, alpha=0.3, linewidth=0.5, color='gray')
-        # Add centerlines
         ax.axhline(0, color='red', linestyle='--', alpha=0.4, linewidth=1)
         ax.axvline(0, color='red', linestyle='--', alpha=0.4, linewidth=1)
     
+    # Professional axis styling
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('gray')
