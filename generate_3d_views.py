@@ -20,7 +20,7 @@ def find_3dm_file(directory='.'):
     return None
 
 def extract_actual_geometry_from_3dm(model_file):
-    """Extract real geometry from 3DM file - not just bounding boxes"""
+    """Extract real geometry from 3DM file - filtered by specific layers"""
     try:
         import rhino3dm as rhino
         print(f"📖 Reading 3DM file: {model_file}")
@@ -32,16 +32,46 @@ def extract_actual_geometry_from_3dm(model_file):
         
         print(f"📋 Found {len(model.Objects)} objects in the model")
         
-        # Print object info for debugging
+        # Get layer information
+        layers_by_index = {}
+        if hasattr(model, 'Layers'):
+            for layer in model.Layers:
+                layers_by_index[layer.Index] = layer.Name
+                print(f"  Layer {layer.Index}: '{layer.Name}'")
+        
+        # Target layers to extract
+        target_layers = ["Costilla Vertebra", "Vias"]
+        print(f"🎯 Target layers: {target_layers}")
+        
+        # Print object info for debugging with layer information
+        relevant_objects = []
         for i, obj in enumerate(model.Objects):
             geom = obj.Geometry
             geom_type = type(geom).__name__ if geom else "None"
-            print(f"  Object {i}: {geom_type}")
+            
+            # Get layer name
+            layer_name = "Unknown"
+            if hasattr(obj, 'Attributes') and hasattr(obj.Attributes, 'LayerIndex'):
+                layer_index = obj.Attributes.LayerIndex
+                layer_name = layers_by_index.get(layer_index, f"Layer_{layer_index}")
+            
+            print(f"  Object {i}: {geom_type} on layer '{layer_name}'")
+            
+            # Filter by target layers
+            if layer_name in target_layers:
+                relevant_objects.append((i, obj))
+                print(f"    ✅ Will process this object")
+        
+        print(f"🔍 Found {len(relevant_objects)} objects on target layers")
+        
+        if len(relevant_objects) == 0:
+            print("❌ No objects found on target layers")
+            return None
         
         all_curves = []
         
-        # Process each object
-        for i, obj in enumerate(model.Objects):
+        # Process only objects on target layers
+        for i, obj in relevant_objects:
             geom = obj.Geometry
             if not geom:
                 continue
@@ -53,37 +83,28 @@ def extract_actual_geometry_from_3dm(model_file):
                 if hasattr(geom, 'Faces') and len(geom.Faces) > 0:
                     # It's a Brep/Surface - extract edge curves
                     print(f"  📐 Brep with {len(geom.Faces)} faces")
-                    for face in geom.Faces:
-                        # Get outer boundary
-                        if hasattr(face, 'OuterLoop'):
-                            loop = face.OuterLoop
-                            if hasattr(loop, 'To3dCurve'):
-                                curve = loop.To3dCurve()
-                                if curve:
-                                    points = sample_curve_points(curve)
-                                    if len(points) > 1:
-                                        all_curves.append(points)
-                                        print(f"    ✅ Extracted boundary curve with {len(points)} points")
-                        
-                        # Get inner holes/loops
-                        if hasattr(face, 'Loops'):
-                            for loop in face.Loops:
-                                if hasattr(loop, 'To3dCurve'):
-                                    curve = loop.To3dCurve()
+                    
+                    # Extract all edges from the Brep
+                    if hasattr(geom, 'Edges'):
+                        for edge_idx, edge in enumerate(geom.Edges):
+                            try:
+                                # Get the 3D curve from the edge
+                                if hasattr(edge, 'EdgeCurve'):
+                                    curve = edge.EdgeCurve
                                     if curve:
                                         points = sample_curve_points(curve)
                                         if len(points) > 1:
                                             all_curves.append(points)
-                                            print(f"    ✅ Extracted loop curve with {len(points)} points")
+                                            print(f"    ✅ Extracted edge curve {edge_idx} with {len(points)} points")
+                            except Exception as e:
+                                print(f"    ⚠️ Edge {edge_idx} error: {e}")
                 
-                elif hasattr(geom, 'ToNurbsCurve'):
-                    # It's a curve
-                    curve = geom.ToNurbsCurve() if callable(geom.ToNurbsCurve) else geom.ToNurbsCurve
-                    if curve:
-                        points = sample_curve_points(curve)
-                        if len(points) > 1:
-                            all_curves.append(points)
-                            print(f"  ✅ Extracted curve with {len(points)} points")
+                elif hasattr(geom, 'ToNurbsCurve') or 'Curve' in type(geom).__name__:
+                    # It's a curve - sample it directly
+                    points = sample_curve_points(geom)
+                    if len(points) > 1:
+                        all_curves.append(points)
+                        print(f"  ✅ Extracted curve with {len(points)} points")
                 
                 elif hasattr(geom, 'Vertices'):
                     # It's a mesh
@@ -96,29 +117,33 @@ def extract_actual_geometry_from_3dm(model_file):
                 else:
                     # Try to convert to Brep first
                     if hasattr(geom, 'ToBrep'):
-                        brep = geom.ToBrep()
-                        if brep and hasattr(brep, 'Faces'):
-                            print(f"  📐 Converted to Brep with {len(brep.Faces)} faces")
-                            for face in brep.Faces:
-                                if hasattr(face, 'OuterLoop'):
-                                    loop = face.OuterLoop
-                                    if hasattr(loop, 'To3dCurve'):
-                                        curve = loop.To3dCurve()
-                                        if curve:
-                                            points = sample_curve_points(curve)
-                                            if len(points) > 1:
-                                                all_curves.append(points)
-                                                print(f"    ✅ Extracted boundary curve with {len(points)} points")
+                        try:
+                            brep = geom.ToBrep()
+                            if brep and hasattr(brep, 'Edges'):
+                                print(f"  📐 Converted to Brep with {len(brep.Edges)} edges")
+                                for edge_idx, edge in enumerate(brep.Edges):
+                                    try:
+                                        if hasattr(edge, 'EdgeCurve'):
+                                            curve = edge.EdgeCurve
+                                            if curve:
+                                                points = sample_curve_points(curve)
+                                                if len(points) > 1:
+                                                    all_curves.append(points)
+                                                    print(f"    ✅ Extracted edge curve {edge_idx} with {len(points)} points")
+                                    except Exception as e:
+                                        print(f"    ⚠️ Edge {edge_idx} error: {e}")
+                        except Exception as e:
+                            print(f"  ⚠️ ToBrep conversion error: {e}")
                 
             except Exception as e:
                 print(f"  ❌ Error processing object {i}: {e}")
                 continue
         
         if len(all_curves) > 0:
-            print(f"🎉 Successfully extracted {len(all_curves)} curves from 3DM file")
+            print(f"🎉 Successfully extracted {len(all_curves)} curves from target layers")
             return all_curves
         else:
-            print("❌ No curves could be extracted from 3DM file")
+            print("❌ No curves could be extracted from target layers")
             return None
             
     except ImportError:
@@ -136,8 +161,11 @@ def sample_curve_points(curve, count=50):
     try:
         if hasattr(curve, 'Domain'):
             domain = curve.Domain
+            # Fix: Use T0 and T1 instead of Min and Max for rhino3dm intervals
+            t_start = domain.T0
+            t_end = domain.T1
             for i in range(count):
-                t = domain.Min + (domain.Max - domain.Min) * i / (count - 1)
+                t = t_start + (t_end - t_start) * i / (count - 1)
                 if hasattr(curve, 'PointAt'):
                     pt = curve.PointAt(t)
                     if pt:
@@ -150,7 +178,17 @@ def sample_curve_points(curve, count=50):
             for i in range(0, point_count, step):
                 pt = curve.Points[i].Location
                 points.append([pt.X, pt.Y, pt.Z])
-                
+        
+        # Alternative: try direct point access for PolylineCurves
+        elif hasattr(curve, 'PointCount'):
+            point_count = curve.PointCount
+            step = max(1, point_count // count)
+            for i in range(0, point_count, step):
+                if hasattr(curve, 'Point'):
+                    pt = curve.Point(i)
+                    if pt:
+                        points.append([pt.X, pt.Y, pt.Z])
+                        
     except Exception as e:
         print(f"    ❌ Error sampling curve: {e}")
         
